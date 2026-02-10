@@ -1,10 +1,66 @@
-import { useRouter } from 'expo-router'; // <--- ADD THIS IMPORT
+import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import { KeyboardAvoidingView, Platform, SafeAreaView, StatusBar, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import {
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  SafeAreaView,
+  StatusBar,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 
-export default function UserLogin() { // <--- Renamed function
-  const router = useRouter(); // <--- Initialize Router
+const API_BASE_URL = 'http://YOUR_SERVER_HOST:YOUR_PORT'; // <-- change this to your backend URL
+
+export default function UserLogin() {
+  const router = useRouter();
   const [keepLogged, setKeepLogged] = useState(false);
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleLogin = async () => {
+    if (!username || !password) {
+      Alert.alert('Missing information', 'Please enter both username and password.');
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      const response = await fetch(`${API_BASE_URL}/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          username,
+          password,
+          keepLogged,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || 'Login failed');
+      }
+
+      const data = await response.json();
+
+      // You can store tokens/user info here if your API returns them
+      // e.g. await AsyncStorage.setItem('authToken', data.token);
+
+      router.push('/userdashboard');
+    } catch (error: any) {
+      Alert.alert('Login error', error.message || 'Unable to log in. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -36,14 +92,18 @@ export default function UserLogin() { // <--- Renamed function
             placeholder="Enter your username"
             placeholderTextColor="#666"
             autoCapitalize="none"
+            value={username}
+            onChangeText={setUsername}
           />
 
           <Text style={styles.label}>Password</Text>
           <TextInput 
-            style={styles.input} 
+          style={styles.input} 
             placeholder="Enter your password"
             placeholderTextColor="#666"
             secureTextEntry={true} 
+          value={password}
+          onChangeText={setPassword}
           />
 
           <View style={styles.toggleContainer}>
@@ -64,9 +124,12 @@ export default function UserLogin() { // <--- Renamed function
           {/* LOGIN BUTTON - NOW WORKS */}
           <TouchableOpacity 
             style={styles.loginButton} 
-            onPress={() => router.push('/userdashboard')} // <--- Navigate to Dashboard
+            onPress={handleLogin}
+            disabled={loading}
           >
-            <Text style={styles.loginButtonText}>LOGIN</Text>
+            <Text style={styles.loginButtonText}>
+              {loading ? 'LOGGING IN...' : 'LOGIN'}
+            </Text>
           </TouchableOpacity>
 
         </View>
