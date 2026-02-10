@@ -1,5 +1,6 @@
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -64,8 +65,12 @@ export default function UserLogin() {
 
       Alert.alert('Success', 'Login successful!');
       
-      // You can store user info here if needed
-      // e.g. await AsyncStorage.setItem('userId', user.id.toString());
+      // Store username or other identifiers for later use (e.g. in leave requests)
+      try {
+        await AsyncStorage.setItem('username', username);
+      } catch (storageError) {
+        console.warn('Failed to persist username', storageError);
+      }
 
       router.push('/userdashboard');
     } catch (error: any) {
