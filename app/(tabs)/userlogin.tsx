@@ -14,7 +14,9 @@ import {
   View,
 } from 'react-native';
 
-const API_BASE_URL = 'http://YOUR_SERVER_HOST:YOUR_PORT'; // <-- change this to your backend URL
+// Supabase configuration
+const SUPABASE_URL = 'https://cgyqweheceduyrpxqvwd.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_MJmY9d0yFuPp6KtQ62stGw_lFHMnNAK';
 
 export default function UserLogin() {
   const router = useRouter();
@@ -32,27 +34,38 @@ export default function UserLogin() {
     try {
       setLoading(true);
 
-      const response = await fetch(`${API_BASE_URL}/login`, {
-        method: 'POST',
+      // Connect directly to Supabase to check user credentials
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/accounts?username=eq.${username}`, {
+        method: 'GET',
         headers: {
           'Content-Type': 'application/json',
+          'apikey': SUPABASE_ANON_KEY,
+          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
         },
-        body: JSON.stringify({
-          username,
-          password,
-          keepLogged,
-        }),
       });
 
       if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(errorText || 'Login failed');
+        throw new Error('Network error. Please try again.');
       }
 
-      const data = await response.json();
+      const users = await response.json();
 
-      // You can store tokens/user info here if your API returns them
-      // e.g. await AsyncStorage.setItem('authToken', data.token);
+      if (users.length === 0) {
+        throw new Error('Invalid username or password.');
+      }
+
+      const user = users[0];
+      
+      // Check password (assuming plain text comparison for now)
+      // In production, you'd want to use proper password hashing
+      if (user.password !== password) {
+        throw new Error('Invalid username or password.');
+      }
+
+      Alert.alert('Success', 'Login successful!');
+      
+      // You can store user info here if needed
+      // e.g. await AsyncStorage.setItem('userId', user.id.toString());
 
       router.push('/userdashboard');
     } catch (error: any) {
