@@ -2,7 +2,7 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Dimensions, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from './ThemeContext'; // <--- IMPORT HOOK
@@ -15,6 +15,7 @@ export default function UserAttendance() {
   const isDark = theme === 'dark';
   
   const [permission, requestPermission] = useCameraPermissions();
+  const cameraRef = useRef<CameraView | null>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [isClockedIn, setIsClockedIn] = useState(false);
   const [clockInTime, setClockInTime] = useState("");
@@ -54,22 +55,45 @@ export default function UserAttendance() {
   const formattedTime = currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const formattedDate = currentTime.toDateString();
 
+  // Placeholder verifier; replace with real API call when backend is ready.
+  const fakeVerifyFace = async (_imageBase64: string | null) => {
+    return new Promise<boolean>((resolve) => setTimeout(() => resolve(true), 1200));
+  };
+
+  const runVerification = async () => {
+    if (!cameraRef.current) throw new Error('Camera not ready');
+    const photo = await cameraRef.current.takePictureAsync({ base64: true, quality: 0.5, skipProcessing: true });
+    if (!photo?.base64) throw new Error('No image captured');
+    const ok = await fakeVerifyFace(photo.base64);
+    if (!ok) throw new Error('Verification failed');
+  };
+
   const handleAttendance = async () => {
-    if (!isClockedIn) {
-        setIsVerifying(true);
-        setTimeout(async () => {
-            setIsVerifying(false);
-            setClockInTime(formattedTime);
-            setIsClockedIn(true);
-            await AsyncStorage.setItem('userClockInTime', formattedTime);
-            Alert.alert("Verified", "Face Match: 98%. You are clocked in.");
-        }, 2000);
-    } else {
+    if (isClockedIn) {
         setIsClockedIn(false);
         setClockInTime("");
         await AsyncStorage.removeItem('userClockInTime');
         Alert.alert("Goodbye", "Clocked out successfully.");
         setTimeout(() => router.back(), 500);
+        return;
+    }
+
+    if (!permission?.granted) {
+        Alert.alert("Camera required", "Please allow camera access to verify.");
+        return;
+    }
+
+    setIsVerifying(true);
+    try {
+        await runVerification();
+        setClockInTime(formattedTime);
+        setIsClockedIn(true);
+        await AsyncStorage.setItem('userClockInTime', formattedTime);
+        Alert.alert("Verified", "Face match success. You are clocked in.");
+    } catch (e) {
+        Alert.alert("Verification failed", "Please try again.");
+    } finally {
+        setIsVerifying(false);
     }
   };
 
@@ -99,7 +123,7 @@ export default function UserAttendance() {
             </View>
         ) : (
             <View style={styles.cameraWrapper}>
-                <CameraView style={styles.camera} facing="front" />
+                <CameraView ref={cameraRef} style={styles.camera} facing="front" />
                 <View style={styles.cameraOverlay}>
                     {isVerifying ? (
                         <View style={styles.verifyingContainer}>
