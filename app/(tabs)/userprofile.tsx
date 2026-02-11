@@ -1,10 +1,12 @@
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
+    Image,
     Modal,
     SafeAreaView,
     ScrollView,
@@ -44,6 +46,8 @@ export default function UserProfile() {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [profilePicture, setProfilePicture] = useState<string | null>(null);
+  const [pendingProfilePicture, setPendingProfilePicture] = useState<string | null>(null);
   
   // Date picker states
   const currentYear = new Date().getFullYear();
@@ -93,6 +97,7 @@ export default function UserProfile() {
 
   useEffect(() => {
     loadProfile();
+    loadProfilePicture();
   }, []);
 
   const loadProfile = async () => {
@@ -178,6 +183,146 @@ export default function UserProfile() {
     }
   };
 
+  const loadProfilePicture = async () => {
+    try {
+      const userId = await AsyncStorage.getItem('userId');
+      if (!userId) {
+        console.log('[Profile Picture] No userId found');
+        return;
+      }
+
+      console.log('[Profile Picture] Fetching for userId:', userId);
+
+      // Fetch profile picture from accounts table
+      const response = await fetch(
+        `${SUPABASE_URL}/rest/v1/accounts?log_id=eq.${userId}&select=face`,
+        {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          },
+        }
+      );
+
+      const data = await response.json();
+      console.log('[Profile Picture] Response status:', response.status);
+      console.log('[Profile Picture] Data received:', !!data);
+      console.log('[Profile Picture] Data length:', data?.length);
+      console.log('[Profile Picture] Has face:', !!data?.[0]?.face);
+      
+      if (data && data.length > 0 && data[0].face) {
+        const faceData = data[0].face;
+        console.log('[Profile Picture] Face data type:', typeof faceData);
+        console.log('[Profile Picture] Face data length:', faceData?.length);
+        console.log('[Profile Picture] First 50 chars:', faceData.substring?.(0, 50) || 'not a string');
+        
+        if (typeof faceData === 'string') {
+          // If already a data URI, use as-is
+          if (faceData.startsWith('data:image')) {
+            setProfilePicture(faceData);
+            console.log('[Profile Picture] ✓ Set as data URI');
+          }
+          // If looks like base64, add prefix
+          else if (faceData.startsWith('/9j') || faceData.startsWith('iVBOR') || faceData.startsWith('R0lG')) {
+            const uri = `data:image/jpeg;base64,${faceData}`;
+            setProfilePicture(uri);
+            console.log('[Profile Picture] ✓ Set as base64 with prefix');
+          }
+          // Handle PostgreSQL bytea hex format (\x...)
+          else if (faceData.startsWith('\\x')) {
+            console.warn('[Profile Picture] ⚠ Data is in PostgreSQL hex format - cannot display');
+            // Silently ignore - user can update later if needed
+          }
+          // Try as base64 anyway
+          else {
+            const uri = `data:image/jpeg;base64,${faceData}`;
+            setProfilePicture(uri);
+            console.log('[Profile Picture] ✓ Set as base64 (fallback)');
+          }
+        } else {
+          console.warn('[Profile Picture] Face data is not a string:', typeof faceData);
+        }
+      } else {
+        console.log('[Profile Picture] No face data found in database');
+      }
+    } catch (error) {
+      console.error('[Profile Picture] Error:', error);
+    }
+  };
+
+  const pickImage = async () => {
+    try {
+      // Request permission
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Denied', 'We need camera roll permissions to change your profile picture.');
+        return;
+      }
+
+      // Launch image picker
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: 'images',
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.5,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets[0].base64) {
+        const base64Image = result.assets[0].base64;
+        
+        // Show preview immediately and store for later upload
+        const imageUri = `data:image/jpeg;base64,${base64Image}`;
+        setProfilePicture(imageUri);
+        setPendingProfilePicture(base64Image);
+        
+        console.log('[Profile Picture] Image selected, will upload on Save');
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', 'Failed to pick image');
+    }
+  };
+
+  const uploadAndUpdateProfilePicture = async (base64Image: string) => {
+    try {
+      const userId = await AsyncStorage.getItem('userId');
+      if (!userId) return;
+
+      console.log('[Profile Picture] Updating profile picture...');
+
+      // Create complete data URI (this prevents PostgreSQL from converting to hex)
+      const dataUri = `data:image/jpeg;base64,${base64Image}`;
+
+      // Update database with complete data URI
+      const response = await fetch(
+        `${SUPABASE_URL}/rest/v1/accounts?log_id=eq.${userId}`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+            Prefer: 'return=representation',
+          },
+          body: JSON.stringify({
+            face: dataUri, // Send as complete data URI
+          }),
+        }
+      );
+
+      if (response.ok) {
+        console.log('[Profile Picture] Update successful');
+      } else {
+        throw new Error('Failed to update profile picture');
+      }
+    } catch (error) {
+      console.error('[Profile Picture] Update error:', error);
+      Alert.alert('Error', 'Failed to update profile picture');
+    }
+  };
   const createEmployeeRecord = async (logId: string) => {
     try {
       setLoading(true);
@@ -232,6 +377,14 @@ export default function UserProfile() {
     try {
       setLoading(true);
 
+      // Upload profile picture first if there's a pending one
+      if (pendingProfilePicture) {
+        console.log('[Profile Picture] Uploading profile picture...');
+        await uploadAndUpdateProfilePicture(pendingProfilePicture);
+        setPendingProfilePicture(null);
+      }
+
+      // Then update employee data
       const response = await fetch(
         `${SUPABASE_URL}/rest/v1/employees?emp_id=eq.${profile.emp_id}`,
         {
@@ -258,6 +411,8 @@ export default function UserProfile() {
         setProfile(editedProfile);
         setEditing(false);
         Alert.alert('Success', 'Profile updated successfully');
+        // Reload profile picture to confirm
+        await loadProfilePicture();
       } else {
         throw new Error('Failed to update profile');
       }
@@ -271,7 +426,10 @@ export default function UserProfile() {
 
   const handleCancel = () => {
     setEditedProfile(profile);
+    setPendingProfilePicture(null);
     setEditing(false);
+    // Reload profile picture to revert any preview changes
+    loadProfilePicture();
   };
 
   // Dynamic styles
@@ -332,10 +490,20 @@ export default function UserProfile() {
         {/* PROFILE PICTURE */}
         <View style={styles.profilePictureContainer}>
           <View style={styles.profilePicture}>
-            <Ionicons name="person" size={60} color="#F27121" />
+            {profilePicture ? (
+              <Image
+                source={{ uri: profilePicture }}
+                style={styles.profileImage}
+              />
+            ) : (
+              <Ionicons name="person" size={60} color="#F27121" />
+            )}
           </View>
           {editing && (
-            <TouchableOpacity style={styles.changePictureButton}>
+            <TouchableOpacity 
+              style={styles.changePictureButton}
+              onPress={pickImage}
+            >
               <MaterialCommunityIcons name="camera" size={20} color="#FFF" />
             </TouchableOpacity>
           )}
@@ -677,6 +845,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 3,
     borderColor: '#F27121',
+  },
+  profileImage: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
   },
   changePictureButton: {
     position: 'absolute',

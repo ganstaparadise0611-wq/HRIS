@@ -15,7 +15,7 @@ import {
     Text,
     TextInput,
     TouchableOpacity,
-    View,
+    View
 } from 'react-native';
 
 // Backend configuration
@@ -121,6 +121,9 @@ export default function UserLogin() {
       // Create new account via PHP backend
       console.log('Attempting to connect to:', `${PHP_BACKEND_URL}/signup.php`);
       
+      // Create complete data URI to prevent PostgreSQL bytea conversion
+      const faceDataUri = `data:image/jpeg;base64,${capturedBase64}`;
+      
       const response = await fetch(`${PHP_BACKEND_URL}/signup.php`, {
         method: 'POST',
         headers: {
@@ -130,7 +133,7 @@ export default function UserLogin() {
         body: JSON.stringify({
           username,
           password, // Backend can handle password hashing
-          face: capturedBase64, // Store face image as base64
+          face: faceDataUri, // Store face image as complete data URI
           qr_code: qrCodeData, // Store QR code based on face
         }),
       });
