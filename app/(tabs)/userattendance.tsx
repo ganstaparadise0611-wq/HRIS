@@ -8,6 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from './ThemeContext'; // <--- IMPORT HOOK
 
 const { width } = Dimensions.get('window');
+const API_URL = process.env.EXPO_PUBLIC_API_URL;
 
 export default function UserAttendance() {
   const router = useRouter();
@@ -55,17 +56,34 @@ export default function UserAttendance() {
   const formattedTime = currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const formattedDate = currentTime.toDateString();
 
-  // Placeholder verifier; replace with real API call when backend is ready.
-  const fakeVerifyFace = async (_imageBase64: string | null) => {
-    return new Promise<boolean>((resolve) => setTimeout(() => resolve(true), 1200));
+  const verifyFace = async (photoUri: string) => {
+    if (!API_URL) throw new Error('Missing EXPO_PUBLIC_API_URL');
+    const form = new FormData();
+    form.append('photo', {
+      uri: photoUri,
+      name: 'selfie.jpg',
+      type: 'image/jpeg',
+    } as any);
+    form.append('clock_time', formattedTime);
+
+    const response = await fetch(`${API_URL}/verify.php`, {
+      method: 'POST',
+      body: form,
+      headers: { Accept: 'application/json' },
+    });
+
+    const json = await response.json().catch(() => ({}));
+    if (!response.ok || !json.ok) {
+      throw new Error(json.message || 'Verification failed');
+    }
+    return json;
   };
 
   const runVerification = async () => {
     if (!cameraRef.current) throw new Error('Camera not ready');
-    const photo = await cameraRef.current.takePictureAsync({ base64: true, quality: 0.5, skipProcessing: true });
-    if (!photo?.base64) throw new Error('No image captured');
-    const ok = await fakeVerifyFace(photo.base64);
-    if (!ok) throw new Error('Verification failed');
+    const photo = await cameraRef.current.takePictureAsync({ quality: 0.6, skipProcessing: true });
+    if (!photo?.uri) throw new Error('No image captured');
+    return verifyFace(photo.uri);
   };
 
   const handleAttendance = async () => {
@@ -85,13 +103,13 @@ export default function UserAttendance() {
 
     setIsVerifying(true);
     try {
-        await runVerification();
+        const result = await runVerification();
         setClockInTime(formattedTime);
         setIsClockedIn(true);
         await AsyncStorage.setItem('userClockInTime', formattedTime);
-        Alert.alert("Verified", "Face match success. You are clocked in.");
-    } catch (e) {
-        Alert.alert("Verification failed", "Please try again.");
+        Alert.alert("Verified", result?.message || "Face match success. You are clocked in.");
+    } catch (e: any) {
+        Alert.alert("Verification failed", e?.message || "Please try again.");
     } finally {
         setIsVerifying(false);
     }
