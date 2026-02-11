@@ -5,10 +5,9 @@ import React, { useRef, useState } from 'react';
 import {
     Alert,
     Image,
-    KeyboardAvoidingKey,
+    KeyboardAvoidingView,
     Modal,
     Platform,
-    SafeAreaView,
     StatusBar,
     StyleSheet,
     Switch,
@@ -17,6 +16,7 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 // Backend configuration
 // Update this to your PHP backend URL (e.g., http://localhost:8000 or your deployed URL)
