@@ -50,7 +50,10 @@ export default function UserDashboard() {
             <Text style={[styles.greeting, dyn.text]}>Hi, IT Intern</Text>
             <Text style={[styles.subGreeting, dyn.sub]}>Lets be productive today.</Text>
           </View>
-          <TouchableOpacity style={styles.profileButton}>
+          <TouchableOpacity 
+            style={styles.profileButton}
+            onPress={() => router.push('/userprofile')}
+          >
             <Ionicons name="person-circle-outline" size={40} color="#F27121" />
           </TouchableOpacity>
         </View>
