@@ -17,14 +17,7 @@ import {
     TouchableOpacity,
     View
 } from 'react-native';
-
-// Backend configuration
-// Update this to your PHP backend URL (e.g., http://localhost:8000 or your deployed URL)
-const PHP_BACKEND_URL = 'http://192.168.15.229:8000'; // Your computer's IP address
-
-// Supabase configuration (for direct API calls if needed)
-const SUPABASE_URL = 'https://cgyqweheceduyrpxqvwd.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_MJmY9d0yFuPp6KtQ62stGw_lFHMnNAK';
+import { PHP_BACKEND_URL } from '../../constants/backend-config';
 
 export default function UserLogin() {
   const router = useRouter();

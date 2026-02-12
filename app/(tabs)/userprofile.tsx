@@ -18,12 +18,8 @@ import {
     View
 } from 'react-native';
 import WheelPicker from 'react-native-wheely';
+import { SUPABASE_ANON_KEY, SUPABASE_URL } from '../../constants/backend-config';
 import { useTheme } from './ThemeContext';
-
-// Backend configuration
-const PHP_BACKEND_URL = 'http://192.168.15.229:8000';
-const SUPABASE_URL = 'https://cgyqweheceduyrpxqvwd.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_MJmY9d0yFuPp6KtQ62stGw_lFHMnNAK';
 
 interface UserProfile {
   emp_id: number;
