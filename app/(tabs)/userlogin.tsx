@@ -8,6 +8,7 @@ import {
     KeyboardAvoidingView,
     Modal,
     Platform,
+    SafeAreaView,
     StatusBar,
     StyleSheet,
     Switch,
@@ -16,11 +17,10 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
 // Backend configuration
 // Update this to your PHP backend URL (e.g., http://localhost:8000 or your deployed URL)
-const PHP_BACKEND_URL = 'http://192.168.15.229:8000'; // Your computer's IP address
+const PHP_BACKEND_URL = 'http://192.168.15.14:8000';// Your computer's IP address
 
 // Supabase configuration (for direct API calls if needed)
 const SUPABASE_URL = 'https://cgyqweheceduyrpxqvwd.supabase.co';

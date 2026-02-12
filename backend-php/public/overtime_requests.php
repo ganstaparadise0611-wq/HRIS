@@ -19,6 +19,8 @@ require_once __DIR__ . '/connect.php';
 // GET endpoint - Get overtime history for an employee
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     $emp_id = $_GET['emp_id'] ?? null;
+    // Debug log for incoming GET request
+    error_log("[overtime_requests.php] GET request received. emp_id=" . print_r($emp_id, true));
     
     if (empty($emp_id)) {
         http_response_code(400);
@@ -26,10 +28,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         exit;
     }
     
+    // NOTE: Supabase table name is "ovts", so we query that here
+    // The table has a 'timestamp' column, not 'created_at'
     [$status, $result, $err] = supabase_request(
         'GET',
-        "rest/v1/overtime_requests?emp_id=eq.{$emp_id}&select=*&order=created_at.desc"
+        "rest/v1/ovts?emp_id=eq.{$emp_id}&select=*&order=timestamp.desc"
     );
+    error_log("[overtime_requests.php] Supabase response: status=$status, err=" . print_r($err, true));
     
     if ($err) {
         http_response_code(500);
@@ -41,6 +46,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         http_response_code($status);
         echo json_encode(['ok' => false, 'message' => 'Failed to load overtime history', 'status' => $status]);
         exit;
+    }
+    
+    // Transform the data to reconstruct time range for React Native app
+    if (is_array($result)) {
+        foreach ($result as &$item) {
+            // Map t_id to ovt_id for backward compatibility with React Native app
+            if (isset($item['t_id']) && !isset($item['ovt_id'])) {
+                $item['ovt_id'] = $item['t_id'];
+            }
+            
+            // Extract end_time from reason if it was stored there
+            $reason = $item['reason'] ?? '';
+            $end_time = null;
+            
+            // Check if reason contains " | End: HH:MM" pattern
+            if (preg_match('/\s+\|\s+End:\s+(\d{2}:\d{2})/', $reason, $matches)) {
+                $end_time = $matches[1];
+                // Remove the end_time from reason to restore original
+                $item['reason'] = preg_replace('/\s+\|\s+End:\s+\d{2}:\d{2}/', '', $reason);
+            }
+            
+            // Reconstruct time range format expected by React Native
+            $time_value = $item['time'] ?? '';
+            if ($time_value && $end_time) {
+                // Format time as "HH:MM-HH:MM" for React Native
+                $start_time_formatted = substr($time_value, 0, 5); // Get HH:MM from TIME
+                $item['time'] = $start_time_formatted . '-' . $end_time;
+            } elseif ($time_value) {
+                // If no end_time found, just use start_time
+                $item['time'] = substr($time_value, 0, 5);
+            }
+        }
+        unset($item); // Break reference
     }
     
     echo json_encode([
@@ -88,23 +126,28 @@ if ($action === 'create') {
     $diff = $start->diff($end);
     $total_hours = $diff->h + ($diff->i / 60) + ($diff->s / 3600);
     
+    // The 'time' column in ovts table is TIME type, so we can only store a single time value
+    // We'll store start_time in the TIME column and append end_time to reason in a parseable format
+    // The GET endpoint will reconstruct the time range when returning data
+    
+    // Convert "17:00" to "17:00:00" for PostgreSQL TIME type
+    $start_time_formatted = $start_time . (strlen($start_time) === 5 ? ':00' : '');
+    
     $insertData = [
         'emp_id' => $emp_id,
         'date' => $date,
-        'time' => $start_time . '-' . $end_time, // Store as range or separate fields if your schema requires
-        'reason' => $reason,
+        'time' => $start_time_formatted, // Store start time in TIME column (PostgreSQL TIME type)
+        'reason' => $reason . ' | End: ' . $end_time, // Store end_time in reason (will be extracted in GET)
         'status' => 'Pending',
     ];
     
-    // If your schema has separate start_time and end_time columns, use those instead
-    // $insertData['start_time'] = $start_time;
-    // $insertData['end_time'] = $end_time;
-    
+    // Insert into Supabase "ovts" table using service role key to bypass RLS
     [$status, $result, $err] = supabase_request(
         'POST',
-        'rest/v1/overtime_requests',
+        'rest/v1/ovts',
         [$insertData],
-        ['Prefer: return=representation']
+        ['Prefer: return=representation'],
+        true // Use service role key to bypass RLS
     );
     
     if ($err) {
@@ -127,12 +170,12 @@ if ($action === 'create') {
     exit;
 }
 
-// UPDATE and DELETE require ovt_id
-$ovt_id = $body['ovt_id'] ?? null;
+// UPDATE and DELETE require t_id (primary key column name in ovts table)
+$t_id = $body['t_id'] ?? $body['ovt_id'] ?? null; // Support both for backward compatibility
 
-if (empty($ovt_id) && ($action === 'update' || $action === 'delete')) {
+if (empty($t_id) && ($action === 'update' || $action === 'delete')) {
     http_response_code(400);
-    echo json_encode(['ok' => false, 'message' => 'Missing ovt_id']);
+    echo json_encode(['ok' => false, 'message' => 'Missing t_id']);
     exit;
 }
 
@@ -149,17 +192,22 @@ if ($action === 'update') {
         exit;
     }
 
+    // Convert "17:00" to "17:00:00" for PostgreSQL TIME type
+    $start_time_formatted = $start_time . (strlen($start_time) === 5 ? ':00' : '');
+    
     $updateData = [
         'date' => $date,
-        'time' => $start_time . '-' . $end_time,
-        'reason' => $reason,
+        'time' => $start_time_formatted, // Store start time in TIME column (PostgreSQL TIME type)
+        'reason' => $reason . ' | End: ' . $end_time, // Store end_time in reason (will be extracted in GET)
     ];
 
+    // Update row in "ovts" table using service role key to bypass RLS
     [$status, $result, $err] = supabase_request(
         'PATCH',
-        "rest/v1/overtime_requests?ovt_id=eq.{$ovt_id}",
+        "rest/v1/ovts?t_id=eq.{$t_id}",
         $updateData,
-        ['Prefer: return=representation']
+        ['Prefer: return=representation'],
+        true // Use service role key to bypass RLS
     );
 
     if ($err) {
@@ -184,9 +232,13 @@ if ($action === 'update') {
 
 // DELETE endpoint
 if ($action === 'delete') {
+    // Delete row from "ovts" table using service role key to bypass RLS
     [$status, $result, $err] = supabase_request(
         'DELETE',
-        "rest/v1/overtime_requests?ovt_id=eq.{$ovt_id}"
+        "rest/v1/ovts?t_id=eq.{$t_id}",
+        null,
+        [],
+        true // Use service role key to bypass RLS
     );
 
     if ($err) {

@@ -13,7 +13,9 @@ const SUPABASE_URL = 'https://cgyqweheceduyrpxqvwd.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_MJmY9d0yFuPp6KtQ62stGw_lFHMnNAK';
 
 // PHP Backend API URL
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.15.229:8000';
+// Use the same backend URL as login.php (must be reachable from the device/emulator)
+// PHP Backend API URL
+const API_URL = 'http://192.168.15.14:8000';
 
 export default function UserOvertime() {
   const router = useRouter();
@@ -32,6 +34,27 @@ export default function UserOvertime() {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showStartTimePicker, setShowStartTimePicker] = useState(false);
   const [showEndTimePicker, setShowEndTimePicker] = useState(false);
+
+  // Build backend URL for a PHP endpoint. Some setups serve files under "/public".
+  const buildPhpUrl = (path: string, opts?: { usePublic?: boolean }) => {
+    const cleanPath = path.startsWith('/') ? path : `/${path}`;
+    const prefix = opts?.usePublic ? '/public' : '';
+    return `${API_URL}${prefix}${cleanPath}`;
+  };
+
+  // Fetch helper that retries with "/public" prefix if the server returns 404.
+  const fetchPhpWithPublicFallback = async (
+    path: string,
+    init: RequestInit
+  ): Promise<Response> => {
+    const url1 = buildPhpUrl(path, { usePublic: false });
+    const res1 = await fetch(url1, init);
+    if (res1.status !== 404) return res1;
+
+    const url2 = buildPhpUrl(path, { usePublic: true });
+    console.log('[Overtime] fetch fallback: 404 from', url1, '→ trying', url2);
+    return await fetch(url2, init);
+  };
 
   // Initialize start and end times to reasonable defaults
   useEffect(() => {
@@ -269,9 +292,9 @@ export default function UserOvertime() {
         reason: reason.trim(),
       };
 
-      console.log('[Overtime] submit: POST', `${API_URL}/overtime_requests.php`, payload);
+      console.log('[Overtime] submit: POST', buildPhpUrl('/overtime_requests.php'), payload);
 
-      const res = await fetch(`${API_URL}/overtime_requests.php`, {
+      const res = await fetchPhpWithPublicFallback('/overtime_requests.php', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -316,10 +339,10 @@ export default function UserOvertime() {
     try {
       setLoadingHistory(true);
 
-      const url = `${API_URL}/overtime_requests.php?emp_id=${encodeURIComponent(String(resolvedEmpId))}`;
+      const url = `${buildPhpUrl('/overtime_requests.php')}?emp_id=${encodeURIComponent(String(resolvedEmpId))}`;
       console.log('[Overtime] history: GET', url);
 
-      const res = await fetch(url, {
+      const res = await fetchPhpWithPublicFallback(`/overtime_requests.php?emp_id=${encodeURIComponent(String(resolvedEmpId))}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
