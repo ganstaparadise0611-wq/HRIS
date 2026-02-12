@@ -27,5 +27,6 @@ export const API_ENDPOINTS = {
   SEND_MESSAGE: `${PHP_BACKEND_URL}/send-message.php`,
   SEARCH_ACCOUNTS: `${PHP_BACKEND_URL}/search-accounts.php`,
   CREATE_CONVERSATION: `${PHP_BACKEND_URL}/create-conversation.php`,
+  ADD_CONVERSATION_MEMBER: `${PHP_BACKEND_URL}/add-conversation-member.php`,
   // Add more endpoints as needed
 } as const;

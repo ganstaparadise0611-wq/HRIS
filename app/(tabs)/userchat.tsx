@@ -75,8 +75,16 @@ export default function UserChat() {
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
   
+  // Add member modal state
+  const [showAddMemberModal, setShowAddMemberModal] = useState(false);
+  const [memberSearchText, setMemberSearchText] = useState('');
+  const [memberSuggestions, setMemberSuggestions] = useState<Account[]>([]);
+  const [loadingMemberSuggestions, setLoadingMemberSuggestions] = useState(false);
+  const [addingMember, setAddingMember] = useState(false);
+  
   const flatListRef = useRef<FlatList>(null);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const memberSearchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     loadUserData();
@@ -402,13 +410,96 @@ export default function UserChat() {
   const handleConversationInfo = () => {
     if (!selectedChat) return;
     
+    const buttons = [{ text: 'OK' }];
+    
+    if (selectedChat.type === 'channel') {
+      buttons.unshift({
+        text: 'Add Member',
+        onPress: () => setShowAddMemberModal(true)
+      });
+    }
+    
     Alert.alert(
       selectedChat.name,
       `Type: ${selectedChat.type === 'channel' ? 'Channel' : 'Direct Message'}\n` +
       `Members: ${selectedChat.type === 'channel' ? 'Multiple' : '2'}\n` +
       `Created: Recently`,
-      [{ text: 'OK' }]
+      buttons
     );
+  };
+
+  const searchMembersToAdd = async (query: string) => {
+    if (!query.trim()) {
+      setMemberSuggestions([]);
+      return;
+    }
+
+    try {
+      setLoadingMemberSuggestions(true);
+      const response = await fetch(
+        `${PHP_BACKEND_URL}/search-accounts.php?query=${encodeURIComponent(query)}&current_user_id=${currentUserId}&limit=10`
+      );
+      const result = await response.json();
+      
+      if (result.ok) {
+        setMemberSuggestions(result.accounts || []);
+      }
+    } catch (error) {
+      console.error('Error searching members:', error);
+      setMemberSuggestions([]);
+    } finally {
+      setLoadingMemberSuggestions(false);
+    }
+  };
+
+  const handleMemberSearchInputChange = (text: string) => {
+    setMemberSearchText(text);
+    
+    if (memberSearchTimeoutRef.current) {
+      clearTimeout(memberSearchTimeoutRef.current);
+    }
+    
+    if (text.trim()) {
+      memberSearchTimeoutRef.current = setTimeout(() => {
+        searchMembersToAdd(text);
+      }, 300);
+    } else {
+      setMemberSuggestions([]);
+    }
+  };
+
+  const handleAddMemberToChannel = async (account: Account) => {
+    if (!selectedChat || selectedChat.type !== 'channel') return;
+
+    try {
+      setAddingMember(true);
+      const response = await fetch(`${PHP_BACKEND_URL}/add-conversation-member.php`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          conversation_id: selectedChat.id,
+          user_id: account.log_id
+        })
+      });
+
+      const result = await response.json();
+
+      if (result.ok) {
+        Alert.alert('Success', `${account.username} has been added to ${selectedChat.name}`);
+        setShowAddMemberModal(false);
+        setMemberSearchText('');
+        setMemberSuggestions([]);
+      } else {
+        Alert.alert('Error', result.message || 'Failed to add member');
+      }
+    } catch (error) {
+      console.error('Error adding member:', error);
+      Alert.alert('Error', 'Failed to add member. Please check your connection.');
+    } finally {
+      setAddingMember(false);
+    }
   };
 
   const dyn = {
@@ -751,6 +842,112 @@ export default function UserChat() {
                   onPress={handleCreateConversation}
                 >
                   <Text style={styles.createButtonText}>Create</Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Add Member Modal */}
+      <Modal
+        visible={showAddMemberModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowAddMemberModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, dyn.card]}>
+            <View style={[styles.modalHeader, dyn.border]}>
+              <Text style={[styles.modalTitle, dyn.text]}>Add Member to {selectedChat?.name}</Text>
+              <TouchableOpacity onPress={() => {
+                setShowAddMemberModal(false);
+                setMemberSearchText('');
+                setMemberSuggestions([]);
+              }}>
+                <Ionicons name="close" size={24} color={colors.text} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={styles.modalBody}>
+              <Text style={[styles.label, dyn.text]}>Search User</Text>
+              <View style={{ position: 'relative' }}>
+                <TextInput
+                  style={[styles.input, dyn.border, { color: colors.text, backgroundColor: isDark ? '#2C2C2C' : '#F5F5F5' }]}
+                  placeholder="Type username to search..."
+                  placeholderTextColor={colors.subText}
+                  value={memberSearchText}
+                  onChangeText={handleMemberSearchInputChange}
+                  autoCapitalize="none"
+                />
+                {loadingMemberSuggestions && (
+                  <ActivityIndicator 
+                    size="small" 
+                    color="#F27121" 
+                    style={{ position: 'absolute', right: 15, top: 15 }} 
+                  />
+                )}
+              </View>
+
+              {/* Member Suggestions */}
+              {memberSuggestions.length > 0 && (
+                <View style={[styles.suggestionsContainer, dyn.card, dyn.border]}>
+                  <Text style={[styles.suggestionsHeader, dyn.sub]}>
+                    Select Member ({memberSuggestions.length} found)
+                  </Text>
+                  {memberSuggestions.map((account) => (
+                    <TouchableOpacity
+                      key={account.log_id}
+                      style={[styles.suggestionItem, dyn.border]}
+                      onPress={() => handleAddMemberToChannel(account)}
+                      disabled={addingMember}
+                    >
+                      <View style={[styles.suggestionAvatar, { backgroundColor: '#F27121' }]}>
+                        <Text style={styles.suggestionAvatarText}>
+                          {account.username.charAt(0).toUpperCase()}
+                        </Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.suggestionUsername, dyn.text]}>
+                          {account.username}
+                        </Text>
+                        <Text style={[styles.suggestionId, dyn.sub]}>
+                          ID: {account.log_id}
+                        </Text>
+                      </View>
+                      {addingMember ? (
+                        <ActivityIndicator size="small" color="#F27121" />
+                      ) : (
+                        <Ionicons name="person-add" size={20} color="#F27121" />
+                      )}
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+
+              {/* No Results Message */}
+              {memberSearchText.trim() && !loadingMemberSuggestions && memberSuggestions.length === 0 && (
+                <View style={[styles.noResultsContainer, dyn.border]}>
+                  <Ionicons name="search" size={32} color={colors.subText} />
+                  <Text style={[styles.noResultsText, dyn.sub]}>
+                    No users found matching "{memberSearchText}"
+                  </Text>
+                  <Text style={[styles.noResultsHint, dyn.sub]}>
+                    Try a different username
+                  </Text>
+                </View>
+              )}
+
+              <View style={styles.modalActions}>
+                <TouchableOpacity
+                  style={[styles.modalButton, styles.cancelButton, { borderColor: colors.border }]}
+                  onPress={() => {
+                    setShowAddMemberModal(false);
+                    setMemberSearchText('');
+                    setMemberSuggestions([]);
+                  }}
+                >
+                  <Text style={[styles.cancelButtonText, dyn.text]}>Close</Text>
                 </TouchableOpacity>
               </View>
             </ScrollView>
