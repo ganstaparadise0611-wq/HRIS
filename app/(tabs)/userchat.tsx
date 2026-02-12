@@ -452,7 +452,7 @@ export default function UserChat() {
   );
 
   const renderMessageItem = ({ item }: { item: Message }) => {
-    const isOwnMessage = item.sender_id === currentUserId;
+    const isOwnMessage = String(item.sender_id) === String(currentUserId);
     const senderName = item.sender?.username || 'Unknown';
     
     return (
