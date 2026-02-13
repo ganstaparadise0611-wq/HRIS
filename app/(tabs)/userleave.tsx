@@ -14,7 +14,7 @@ const SUPABASE_URL = 'https://cgyqweheceduyrpxqvwd.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_MJmY9d0yFuPp6KtQ62stGw_lFHMnNAK';
 
 // PHP Backend API URL (set this in your .env or environment)
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8000';
+const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.15.132:8000';
 
 export default function UserLeave() {
   const router = useRouter();

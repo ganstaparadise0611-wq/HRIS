@@ -55,3 +55,8 @@ export const ThemeProvider = ({ children }: { children: React.ReactNode }) => {
 
 // Custom Hook to use the theme easily
 export const useTheme = () => useContext(ThemeContext);
+
+// Default export for Expo Router (this file is not a route)
+export default function ThemeContextRoute() {
+  return null;
+}

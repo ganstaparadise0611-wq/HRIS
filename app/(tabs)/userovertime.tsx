@@ -1,136 +1,648 @@
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Camera, CameraView } from 'expo-camera';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
-import { Alert, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useTheme } from './ThemeContext';
+import React, { useRef, useState } from 'react';
+import {
+  Alert,
+  Image,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  SafeAreaView,
+  StatusBar,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 
-export default function UserOvertime() {
+// Backend configuration
+// Update this to your PHP backend URL (e.g., http://localhost:8000 or your deployed URL)
+// Use environment variable if available, otherwise use current IP
+const PHP_BACKEND_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.15.132:8000'; // Your computer's IP address
+
+// Supabase configuration (for direct API calls if needed)
+const SUPABASE_URL = 'https://cgyqweheceduyrpxqvwd.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_MJmY9d0yFuPp6KtQ62stGw_lFHMnNAK';
+
+export default function UserLogin() {
   const router = useRouter();
-  const { colors, theme } = useTheme();
-  const isDark = theme === 'dark';
-  
-  const [date, setDate] = useState('Feb 04, 2026');
-  const [startTime, setStartTime] = useState('17:00'); 
-  const [endTime, setEndTime] = useState('20:00');   
-  const [reason, setReason] = useState('');
+  const [keepLogged, setKeepLogged] = useState(false);
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [showCamera, setShowCamera] = useState(false);
+  const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const [capturedBase64, setCapturedBase64] = useState<string | null>(null);
+  const [hasPermission, setHasPermission] = useState<boolean | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const cameraRef = useRef<any>(null);
 
-  const dyn = {
-    bg: { backgroundColor: colors.background },
-    text: { color: colors.text },
-    sub: { color: colors.subText },
-    card: { backgroundColor: colors.card },
-    input: { backgroundColor: isDark ? '#252525' : '#F0F0F0', color: colors.text },
+  const handleLogin = async () => {
+    if (!username || !password) {
+      Alert.alert('Missing information', 'Please enter both username and password.');
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      // Create AbortController for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout (increased for slow connections)
+
+      // Use PHP backend login endpoint
+      const response = await fetch(`${PHP_BACKEND_URL}/login.php`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({
+          username: username,
+          password: password,
+        }),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      let result;
+      try {
+        const text = await response.text();
+        console.log('[Login] Response text:', text.substring(0, 500));
+        result = text ? JSON.parse(text) : {};
+      } catch (parseError) {
+        console.error('[Login] Failed to parse response:', parseError);
+        throw new Error(`Server returned invalid response. Status: ${response.status}`);
+      }
+      
+      console.log('[Login] Response:', result);
+
+      if (!response.ok || !result.ok) {
+        // Include detail and hint in error message if available
+        let errorMsg = result.message || 'Login failed';
+        if (result.detail) {
+          errorMsg += `\n\nDetail: ${result.detail}`;
+        }
+        if (result.hint) {
+          errorMsg += `\n\n${result.hint}`;
+        }
+        throw new Error(errorMsg);
+      }
+
+      // Store user info in AsyncStorage
+      await AsyncStorage.setItem('userId', result.user.log_id.toString());
+      await AsyncStorage.setItem('username', result.user.username);
+      
+      console.log('[Login] Stored userId in AsyncStorage:', result.user.log_id.toString());
+      
+      Alert.alert('Success', 'Login successful!');
+
+      router.push('/userdashboard');
+    } catch (error: any) {
+      console.error('Login error:', error);
+      
+      // Better error handling for network issues
+      let errorMessage = 'Unable to log in. Please try again.';
+      
+      if (error.name === 'AbortError' || error.message?.includes('Aborted')) {
+        errorMessage = `Request timed out after 30 seconds.\n\nPossible issues:\n1. PHP server is not running at ${PHP_BACKEND_URL}\n2. Your device is not on the same WiFi network\n3. Firewall is blocking port 8000\n4. Server is too slow to respond\n\nPlease check:\n- Is PHP server running? (Check terminal)\n- Is your phone on the same WiFi?\n- Try restarting the PHP server`;
+      } else if (error.message?.includes('timeout')) {
+        errorMessage = `Request timed out. The server might be slow or unreachable.\n\nCheck:\n1. PHP server is running at ${PHP_BACKEND_URL}\n2. Your device is on the same WiFi\n3. Try again in a moment`;
+      } else if (error.message?.includes('Network request failed') || error.message?.includes('Failed to fetch')) {
+        errorMessage = `Cannot connect to server at ${PHP_BACKEND_URL}\n\nMake sure:\n1. PHP server is running\n2. Your device is on the same WiFi\n3. Firewall allows port 8000`;
+      } else if (error.message?.includes('Database connection error') || error.message?.includes('Database error')) {
+        // Show detailed database error - detail and hint are already included in error.message from the try block
+        errorMessage = error.message;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      Alert.alert('Login error', errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSignUp = async () => {
+    if (!username || !password) {
+      Alert.alert('Missing information', 'Please enter username and password.');
+      return;
+    }
+
+    if (!capturedImage) {
+      Alert.alert('Missing information', 'Please capture your face for verification.');
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      // Use the base64 data captured from camera
+      if (!capturedBase64) {
+        throw new Error('Face data not available. Please capture your face again.');
+      }
+
+      // Generate QR code based on face data (unique hash)
+      // Create a unique identifier combining username, timestamp, and face hash
+      const timestamp = Date.now();
+      const faceHash = generateFaceHash(capturedBase64);
+      const qrCodeData = `USER:${username}|HASH:${faceHash}|TIME:${timestamp}`;
+
+      console.log('Creating account with data:', {
+        username,
+        hasPassword: !!password,
+        faceDataLength: capturedBase64.length,
+        qrCodeLength: qrCodeData.length,
+        backendUrl: PHP_BACKEND_URL,
+      });
+
+      // Create new account via PHP backend
+      console.log('Attempting to connect to:', `${PHP_BACKEND_URL}/signup.php`);
+      
+      // Create AbortController for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+      
+      const response = await fetch(`${PHP_BACKEND_URL}/signup.php`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({
+          username,
+          password, // Backend can handle password hashing
+          face: capturedBase64, // Store face image as base64
+          qr_code: qrCodeData, // Store QR code based on face
+        }),
+        signal: controller.signal,
+      });
+      
+      clearTimeout(timeoutId);
+
+      // Get response text first to handle non-JSON responses
+      const responseText = await response.text();
+      console.log('Response text:', responseText.substring(0, 200)); // Log first 200 chars
+      
+      let result;
+      try {
+        result = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error('JSON Parse Error:', parseError);
+        console.error('Response was:', responseText);
+        throw new Error('Server returned invalid response. Please check PHP backend.');
+      }
+
+      if (!response.ok || !result.ok) {
+        console.error('Server error:', result);
+        console.error('Response status:', response.status);
+        throw new Error(result.message || 'Failed to create account.');
+      }
+
+      console.log('Account created successfully:', result);
+
+      Alert.alert('Success', 'Account created successfully! Your QR code has been generated based on your face data.');
+      
+      // Reset form and switch to login mode
+      setIsSignUp(false);
+      setCapturedImage(null);
+      setCapturedBase64(null);
+      setPassword('');
+    } catch (error: any) {
+      console.error('Sign up error:', error);
+      console.error('Error details:', {
+        name: error.name,
+        message: error.message,
+        stack: error.stack,
+      });
+      
+      let errorMsg = 'Unable to create account. Please try again.';
+      
+      if (error.name === 'AbortError' || error.message?.includes('Aborted')) {
+        errorMsg = `Request timed out after 30 seconds.\n\nPossible issues:\n1. PHP server is not running at ${PHP_BACKEND_URL}\n2. Your device is not on the same WiFi network\n3. Firewall is blocking port 8000\n4. Server is too slow to respond\n\nPlease check:\n- Is PHP server running? (Check terminal)\n- Is your phone on the same WiFi?\n- Try restarting the PHP server`;
+      } else if (error.message?.includes('timeout')) {
+        errorMsg = `Request timed out. The server might be slow or unreachable.\n\nCheck:\n1. PHP server is running at ${PHP_BACKEND_URL}\n2. Your device is on the same WiFi\n3. Try again in a moment`;
+      } else if (error.message?.includes('Network request failed') || error.message?.includes('Failed to fetch')) {
+        errorMsg = `Cannot connect to server at ${PHP_BACKEND_URL}\n\nMake sure:\n1. PHP server is running\n2. Your device is on the same WiFi\n3. Firewall allows port 8000`;
+      } else if (error.message) {
+        errorMsg = error.message;
+      }
+      
+      Alert.alert('Sign up error', errorMsg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Generate a hash from face data for QR code
+  const generateFaceHash = (base64Data: string): string => {
+    // Simple hash function using the face data
+    let hash = 0;
+    const dataSubset = base64Data.substring(0, 1000); // Use first 1000 chars for hash
+    
+    for (let i = 0; i < dataSubset.length; i++) {
+      const char = dataSubset.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32bit integer
+    }
+    
+    return Math.abs(hash).toString(36).toUpperCase();
+  };
+
+  const requestCameraPermission = async () => {
+    // Show validation message before opening camera
+    Alert.alert(
+      'Face Capture Guidelines',
+      '📷 FOR BEST FACE RECOGNITION:\n\n✅ Position face in the center frame\n✅ Remove eyeglasses, masks, or hats\n✅ Ensure good lighting (face should be well-lit)\n✅ Look directly at camera\n✅ Keep face straight (not tilted)\n✅ Maintain neutral expression\n\n⚠️ This photo will be used for clock-in verification, so make sure your face is clearly visible!',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Proceed',
+          onPress: async () => {
+            const { status } = await Camera.requestCameraPermissionsAsync();
+            setHasPermission(status === 'granted');
+            if (status === 'granted') {
+              setShowCamera(true);
+            } else {
+              Alert.alert('Permission Denied', 'Camera permission is required for face capture.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const captureFace = async () => {
+    if (cameraRef.current) {
+      try {
+        // Use higher quality (0.7) for better face recognition during clock-in
+        // This matches or exceeds clock-in quality (0.6) for better detection
+        const photo = await cameraRef.current.takePictureAsync({
+          quality: 0.7, // Increased from 0.3 to 0.7 for better face recognition
+          base64: true,
+          skipProcessing: false, // Enable processing for better image quality
+        });
+        setCapturedImage(photo.uri);
+        setCapturedBase64(photo.base64 || null);
+        setShowCamera(false);
+        
+        // Debug: Check if base64 was captured
+        if (photo.base64) {
+          console.log('Base64 captured, length:', photo.base64.length);
+          Alert.alert('Success', 'Face captured successfully! This will be used for clock-in verification.');
+        } else {
+          console.error('No base64 data in photo');
+          Alert.alert('Warning', 'Face captured but data may be incomplete. Please retake for better recognition.');
+        }
+      } catch (error) {
+        console.error('Capture error:', error);
+        Alert.alert('Error', 'Failed to capture image. Please try again.');
+      }
+    }
+  };
+
+  const toggleMode = () => {
+    setIsSignUp(!isSignUp);
+    setUsername('');
+    setPassword('');
+    setCapturedImage(null);
+    setCapturedBase64(null);
   };
 
   return (
-    <SafeAreaView style={[styles.container, dyn.bg]} edges={['top', 'left', 'right']}>
-      <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
-      
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn}>
-          <Ionicons name="arrow-back" size={24} color={colors.text} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, dyn.text]}>Overtime Request</Text>
-        <View style={{width: 30}} />
-      </View>
+    <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="light-content" />
 
-      <ScrollView contentContainerStyle={styles.content}>
+      <KeyboardAvoidingView 
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        style={styles.keyboardView}
+      >
         
-        {/* TIME CARD */}
-        {/* Added dyn.card to override the black background */}
-        <View style={[styles.timeCard, dyn.card]}> 
-            <Text style={styles.cardLabel}>TOTAL HOURS</Text>
-            <View style={styles.timeDisplay}>
-                <MaterialCommunityIcons name="clock-time-eight-outline" size={40} color="#F27121" />
-                {/* Added dyn.text to override hardcoded #FFF */}
-                <Text style={[styles.bigTime, dyn.text]}>3.0</Text> 
-                <Text style={styles.unit}>HRS</Text>
-            </View>
-            <View style={styles.divider} />
-            <View style={styles.row}>
-                {/* Added dyn.text to override hardcoded #FFF for values */}
-                <View><Text style={styles.label}>START</Text><Text style={[styles.value, dyn.text]}>{startTime}</Text></View>
-                <Ionicons name="arrow-forward" size={20} color={colors.subText} />
-                <View><Text style={styles.label}>END</Text><Text style={[styles.value, dyn.text]}>{endTime}</Text></View>
-            </View>
+        {/* LOGO AREA */}
+        <View style={styles.logoContainer}>
+          <View style={styles.logoTextContainer}>
+             <Text style={styles.logoTDT}>TDT</Text>
+             <Text style={styles.logoPowersteel}>POWERSTEEL</Text>
+          </View>
+          <Text style={styles.tagline}>THE NO.1 STEEL SUPPLIER</Text>
         </View>
 
-        <Text style={[styles.sectionTitle, dyn.text]}>REQUEST DETAILS</Text>
-        
-        <View style={styles.inputContainer}>
-            <Text style={[styles.inputLabel, dyn.sub]}>Date</Text>
-            <TouchableOpacity style={[styles.fakeInput, dyn.input]}>
-                <Text style={[styles.inputText, dyn.text]}>{date}</Text>
-                <Ionicons name="calendar" size={20} color="#F27121" />
-            </TouchableOpacity>
-        </View>
+        {/* LOGIN FORM */}
+        <View style={styles.formContainer}>
+          
+          <Text style={styles.headerTitle}>{isSignUp ? 'Create Account' : 'Welcome Back'}</Text>
+          <Text style={styles.headerSubtitle}>
+            {isSignUp ? 'Sign up to access HR Portal' : 'Sign in to access HR Portal'}
+          </Text>
 
-        <View style={styles.inputContainer}>
-            <Text style={[styles.inputLabel, dyn.sub]}>Reason / Project</Text>
+          <Text style={styles.label}>Username / Email</Text>
+          <TextInput 
+            style={styles.input} 
+            placeholder="Enter your username"
+            placeholderTextColor="#666"
+            autoCapitalize="none"
+            value={username}
+            onChangeText={setUsername}
+          />
+
+          <Text style={styles.label}>Password</Text>
+          <View style={styles.passwordContainer}>
             <TextInput 
-                style={[styles.textInput, dyn.input]} 
-                placeholder="Why is overtime needed?" 
-                placeholderTextColor={colors.subText}
-                value={reason}
-                onChangeText={setReason}
+              style={styles.passwordInput} 
+              placeholder="Enter your password"
+              placeholderTextColor="#666"
+              secureTextEntry={!showPassword} 
+              value={password}
+              onChangeText={setPassword}
             />
+            <TouchableOpacity 
+              style={styles.eyeIcon}
+              onPress={() => setShowPassword(!showPassword)}
+            >
+              <Text style={styles.eyeIconText}>{showPassword ? 'Hide' : 'Show'}</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* FACE CAPTURE SECTION - Only show in Sign Up mode */}
+          {isSignUp && (
+            <View style={styles.faceSection}>
+              <Text style={styles.label}>Face Recognition</Text>
+              <TouchableOpacity 
+                style={styles.captureButton}
+                onPress={requestCameraPermission}
+              >
+                <Text style={styles.captureButtonText}>
+                  {capturedImage ? '✓ Face Captured' : '📷 Capture Face'}
+                </Text>
+              </TouchableOpacity>
+              
+              {capturedImage && (
+                <View style={styles.imagePreview}>
+                  <Image 
+                    source={{ uri: capturedImage }} 
+                    style={styles.previewImage}
+                  />
+                  <TouchableOpacity 
+                    style={styles.retakeButton}
+                    onPress={requestCameraPermission}
+                  >
+                    <Text style={styles.retakeText}>Retake</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+          )}
+
+          {/* Show Keep Logged In and Forgot Password only in Login mode */}
+          {!isSignUp && (
+            <View style={styles.toggleContainer}>
+              <View style={styles.switchWrapper}>
+                <Switch 
+                  trackColor={{ false: "#555", true: "#F27121" }} 
+                  thumbColor={keepLogged ? "#fff" : "#ccc"}
+                  onValueChange={() => setKeepLogged(!keepLogged)}
+                  value={keepLogged}
+                />
+                <Text style={styles.toggleText}>Keep me logged in</Text>
+              </View>
+              <TouchableOpacity>
+                <Text style={styles.forgotPassword}>Forgot Password?</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* LOGIN/SIGNUP BUTTON */}
+          <TouchableOpacity 
+            style={[styles.loginButton, isSignUp && { marginTop: 20 }]} 
+            onPress={isSignUp ? handleSignUp : handleLogin}
+            disabled={loading}
+          >
+            <Text style={styles.loginButtonText}>
+              {loading ? (isSignUp ? 'CREATING ACCOUNT...' : 'LOGGING IN...') : (isSignUp ? 'SIGN UP' : 'LOGIN')}
+            </Text>
+          </TouchableOpacity>
+
+          {/* Toggle between Login and Sign Up */}
+          <View style={styles.switchModeContainer}>
+            <Text style={styles.switchModeText}>
+              {isSignUp ? 'Already have an account?' : "Don't have an account?"}
+            </Text>
+            <TouchableOpacity onPress={toggleMode}>
+              <Text style={styles.switchModeLink}>
+                {isSignUp ? ' Sign In' : ' Sign Up'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
         </View>
 
-        <TouchableOpacity style={styles.submitBtn} onPress={() => Alert.alert("Success", "Filed!")}>
-            <Text style={styles.submitText}>SUBMIT REQUEST</Text>
-        </TouchableOpacity>
-
-        <Text style={[styles.sectionTitle, dyn.text]}>RECENT REQUESTS</Text>
-        {[
-          { date: 'Jan 28, 2026', hours: '2.5 hrs', status: 'Approved', reason: 'System Maintenance' },
-          { date: 'Jan 20, 2026', hours: '4.0 hrs', status: 'Pending', reason: 'Inventory Count' },
-        ].map((item, i) => (
-            <View key={i} style={[styles.historyItem, dyn.card]}>
-                <View>
-                    <Text style={[styles.historyDate, dyn.text]}>{item.date}</Text>
-                    <Text style={[styles.historyReason, dyn.sub]}>{item.reason}</Text>
+        {/* Camera Modal */}
+        <Modal
+          visible={showCamera}
+          animationType="slide"
+          transparent={false}
+        >
+          <View style={styles.cameraContainer}>
+            {hasPermission === false ? (
+              <View style={styles.permissionDenied}>
+                <Text style={styles.permissionText}>Camera permission denied</Text>
+              </View>
+            ) : (
+              <>
+                <CameraView 
+                  ref={cameraRef}
+                  style={styles.camera}
+                  facing="front"
+                />
+                {/* Face Frame Overlay - Helps user position face correctly */}
+                <View style={styles.cameraOverlay}>
+                  <View style={styles.faceFrameGuide} />
+                  <Text style={styles.faceFrameText}>
+                    Position your face within the frame{'\n'}
+                    Ensure good lighting and look directly at camera
+                  </Text>
                 </View>
-                <View style={{alignItems: 'flex-end'}}>
-                    <Text style={[styles.historyHours, dyn.text]}>{item.hours}</Text>
-                    <Text style={[styles.historyStatus, { color: item.status === 'Approved' ? '#27AE60' : '#F39C12' }]}>
-                        {item.status}
-                    </Text>
+                <View style={styles.cameraControls}>
+                  <TouchableOpacity 
+                    style={styles.capturePhotoButton}
+                    onPress={captureFace}
+                  >
+                    <Text style={styles.capturePhotoText}>📷 Capture</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={styles.cancelButton}
+                    onPress={() => setShowCamera(false)}
+                  >
+                    <Text style={styles.cancelButtonText}>Cancel</Text>
+                  </TouchableOpacity>
                 </View>
-            </View>
-        ))}
+              </>
+            )}
+          </View>
+        </Modal>
 
-      </ScrollView>
+        <View style={styles.footer}>
+          <Text style={styles.footerText}>We Empower Development</Text>
+        </View>
+
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
+// STYLES
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20 },
-  headerTitle: { fontSize: 18, fontWeight: 'bold' },
-  iconBtn: { padding: 5 },
-  content: { padding: 20 },
-  timeCard: { backgroundColor: '#252525', borderRadius: 15, padding: 25, alignItems: 'center', marginBottom: 30, borderTopWidth: 4, borderTopColor: '#F27121' },
-  cardLabel: { color: '#888', fontSize: 12, fontWeight: 'bold', letterSpacing: 1, marginBottom: 10 },
-  timeDisplay: { flexDirection: 'row', alignItems: 'flex-end', marginBottom: 20 },
-  bigTime: { color: '#FFF', fontSize: 48, fontWeight: 'bold', marginHorizontal: 10, lineHeight: 50 },
-  unit: { color: '#F27121', fontSize: 18, fontWeight: 'bold', marginBottom: 8 },
-  divider: { width: '100%', height: 1, backgroundColor: '#444', marginBottom: 20 },
-  row: { flexDirection: 'row', justifyContent: 'space-between', width: '100%', alignItems: 'center' },
-  label: { color: '#888', fontSize: 10, fontWeight: 'bold' },
-  value: { color: '#FFF', fontSize: 18, fontWeight: 'bold' },
-  sectionTitle: { fontSize: 14, fontWeight: 'bold', marginBottom: 15, marginTop: 10 },
-  inputContainer: { marginBottom: 20 },
-  inputLabel: { marginBottom: 8, fontSize: 12 },
-  fakeInput: { padding: 15, borderRadius: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  inputText: { fontSize: 16 },
-  textInput: { padding: 15, borderRadius: 10, fontSize: 16 },
-  submitBtn: { backgroundColor: '#F27121', padding: 18, borderRadius: 12, alignItems: 'center', marginBottom: 30 },
-  submitText: { color: '#FFF', fontWeight: 'bold', fontSize: 16 },
-  historyItem: { padding: 15, borderRadius: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-  historyDate: { fontWeight: 'bold', marginBottom: 2 },
-  historyReason: { fontSize: 12 },
-  historyHours: { fontWeight: 'bold', fontSize: 16 },
-  historyStatus: { fontSize: 10, fontWeight: 'bold', marginTop: 2 },
+  container: { flex: 1, backgroundColor: '#1A1A1A' },
+  keyboardView: { flex: 1, justifyContent: 'center', paddingHorizontal: 30 },
+  logoContainer: { alignItems: 'center', marginBottom: 50 },
+  logoTextContainer: { flexDirection: 'row', alignItems: 'center' },
+  logoTDT: { color: '#D3D3D3', fontSize: 32, fontWeight: '800', letterSpacing: 1 },
+  logoPowersteel: { color: '#F27121', fontSize: 32, fontWeight: '800', letterSpacing: 1 },
+  tagline: { color: '#888', fontSize: 12, marginTop: 5, letterSpacing: 2, fontWeight: '600', textTransform: 'uppercase' },
+  formContainer: { width: '100%', backgroundColor: '#252525', padding: 25, borderRadius: 15, elevation: 8 },
+  headerTitle: { color: '#fff', fontSize: 24, fontWeight: 'bold', marginBottom: 5 },
+  headerSubtitle: { color: '#888', fontSize: 14, marginBottom: 25 },
+  label: { color: '#ccc', fontWeight: '600', marginBottom: 8, marginTop: 10, fontSize: 14 },
+  input: { height: 55, backgroundColor: '#1A1A1A', borderRadius: 8, paddingHorizontal: 15, fontSize: 16, color: '#fff', borderWidth: 1, borderColor: '#333' },
+  passwordContainer: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    height: 55, 
+    backgroundColor: '#1A1A1A', 
+    borderRadius: 8, 
+    borderWidth: 1, 
+    borderColor: '#333',
+    paddingHorizontal: 15,
+  },
+  passwordInput: { 
+    flex: 1, 
+    fontSize: 16, 
+    color: '#fff',
+    height: '100%',
+  },
+  eyeIcon: { 
+    padding: 5,
+    marginLeft: 10,
+  },
+  eyeIconText: { 
+    fontSize: 13,
+    color: '#F27121',
+    fontWeight: '600',
+  },
+  toggleContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 20, marginBottom: 25 },
+  switchWrapper: { flexDirection: 'row', alignItems: 'center' },
+  toggleText: { marginLeft: 8, color: '#ccc', fontSize: 13 },
+  loginButton: { backgroundColor: '#F27121', height: 55, borderRadius: 8, justifyContent: 'center', alignItems: 'center', shadowColor: "#F27121", shadowOpacity: 0.4, shadowRadius: 5, elevation: 5 },
+  loginButtonText: { color: '#fff', fontSize: 18, fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: 1 },
+  forgotPassword: { color: '#F27121', fontSize: 13, fontWeight: '600' },
+  footer: { position: 'absolute', bottom: 40, width: '100%', alignItems: 'center', alignSelf: 'center' },
+  footerText: { color: '#555', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: 1 },
+  
+  // New styles for Sign Up and Face Capture
+  faceSection: { marginTop: 10 },
+  captureButton: { 
+    backgroundColor: '#333', 
+    height: 50, 
+    borderRadius: 8, 
+    justifyContent: 'center', 
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#F27121',
+    marginTop: 5,
+  },
+  captureButtonText: { color: '#F27121', fontSize: 16, fontWeight: '600' },
+  imagePreview: { 
+    marginTop: 15, 
+    alignItems: 'center',
+    backgroundColor: '#1A1A1A',
+    padding: 10,
+    borderRadius: 8,
+  },
+  previewImage: { 
+    width: 150, 
+    height: 150, 
+    borderRadius: 75,
+    borderWidth: 3,
+    borderColor: '#F27121',
+  },
+  retakeButton: { 
+    marginTop: 10,
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    backgroundColor: '#F27121',
+    borderRadius: 5,
+  },
+  retakeText: { color: '#fff', fontSize: 14, fontWeight: '600' },
+  switchModeContainer: { 
+    flexDirection: 'row', 
+    justifyContent: 'center', 
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  switchModeText: { color: '#888', fontSize: 14 },
+  switchModeLink: { color: '#F27121', fontSize: 14, fontWeight: 'bold' },
+  
+  // Camera Modal Styles
+  cameraContainer: { flex: 1, backgroundColor: '#000' },
+  camera: { flex: 1 },
+  permissionDenied: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#1A1A1A' },
+  permissionText: { color: '#fff', fontSize: 18 },
+  cameraOverlay: { 
+    ...StyleSheet.absoluteFillObject, 
+    justifyContent: 'center', 
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.3)',
+  },
+  faceFrameGuide: {
+    width: 280,
+    height: 350,
+    borderRadius: 140,
+    borderWidth: 3,
+    borderColor: '#F27121',
+    borderStyle: 'dashed',
+    backgroundColor: 'transparent',
+  },
+  faceFrameText: {
+    position: 'absolute',
+    bottom: 120,
+    color: '#fff',
+    fontSize: 14,
+    textAlign: 'center',
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+    fontWeight: '600',
+  },
+  cameraControls: { 
+    position: 'absolute', 
+    bottom: 40, 
+    width: '100%', 
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingHorizontal: 40,
+  },
+  capturePhotoButton: { 
+    backgroundColor: '#F27121', 
+    paddingHorizontal: 40,
+    paddingVertical: 15,
+    borderRadius: 10,
+    elevation: 5,
+  },
+  capturePhotoText: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
+  cancelButton: { 
+    backgroundColor: '#555', 
+    paddingHorizontal: 40,
+    paddingVertical: 15,
+    borderRadius: 10,
+  },
+  cancelButtonText: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
 });
