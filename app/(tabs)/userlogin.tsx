@@ -23,7 +23,7 @@ import WheelPicker from 'react-native-wheely';
 // Backend configuration
 // Update this to your PHP backend URL (e.g., http://localhost:8000 or your deployed URL)
 // Use environment variable if available, otherwise use current IP
-const PHP_BACKEND_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.15.20:8000'; // Your computer's IP address
+const PHP_BACKEND_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.15.132:8000'; // Your computer's IP address
 
 // Supabase configuration (for direct API calls if needed)
 const SUPABASE_URL = 'https://cgyqweheceduyrpxqvwd.supabase.co';
@@ -101,11 +101,13 @@ export default function UserLogin() {
         
         clearTimeout(timeoutId);
         
-        // If we get any response (even error), server is reachable
-        // Status 0 usually means network error, any other status means server responded
-        if (response.status !== 0) {
+        // Only consider 2xx status codes as success (200-299)
+        // 404 means file not found, which is not a working URL
+        if (response.status >= 200 && response.status < 300) {
           console.log('[Connection Test] ✅ Server reachable at:', url, 'Status:', response.status);
           return { success: true, workingUrl: url };
+        } else if (response.status === 404) {
+          console.log('[Connection Test] ⚠️ Server reachable but file not found at:', url, 'Status:', response.status);
         }
       } catch (error: any) {
         // AbortError means timeout - server not reachable
@@ -131,42 +133,97 @@ export default function UserLogin() {
     try {
       setLoading(true);
 
-      // Quick connection test first
-      console.log('[Login] Testing server connection...');
-      const connectionTest = await testServerConnection();
-      
-      if (!connectionTest.success) {
-        throw new Error(`❌ Cannot reach server at ${PHP_BACKEND_URL}\n\n🔧 Quick Fix:\n1. Start PHP server:\n   cd backend-php\\public\n   php -S 0.0.0.0:8000\n\n2. Check server is running:\n   Open browser: ${PHP_BACKEND_URL}/login.php\n\n3. Network check:\n   • Same WiFi network?\n   • Firewall blocking port 8000?\n   • IP address correct?`);
-      }
+      // Try multiple URL paths to find the working one
+      const loginUrls = [
+        `${PHP_BACKEND_URL}/login.php`,
+        `${PHP_BACKEND_URL}/public/login.php`,
+      ];
+
+      let response: Response | null = null;
+      let result: any = null;
+      let lastError: any = null;
 
       // Create AbortController for timeout
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
 
-      // Use PHP backend login endpoint
-      const response = await fetch(`${PHP_BACKEND_URL}/login.php`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: JSON.stringify({
-          username: username,
-          password: password,
-        }),
-        signal: controller.signal,
-      });
+      // Try each URL until one works
+      for (const url of loginUrls) {
+        try {
+          console.log('[Login] Trying:', url);
+          
+          response = await fetch(url, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json',
+            },
+            body: JSON.stringify({
+              username: username,
+              password: password,
+            }),
+            signal: controller.signal,
+          });
+
+          clearTimeout(timeoutId);
+
+          // If 404, try next URL
+          if (response.status === 404) {
+            console.log('[Login] 404 - trying next URL');
+            continue;
+          }
+
+          // Try to parse response
+          let responseText = '';
+          try {
+            responseText = await response.text();
+            console.log('[Login] Response text:', responseText.substring(0, 500));
+            // If it's HTML (404 page), try next URL
+            if (responseText.trim().startsWith('<!')) {
+              console.log('[Login] Got HTML response (404 page) - trying next URL');
+              continue;
+            }
+            result = responseText ? JSON.parse(responseText) : {};
+          } catch (parseError) {
+            console.error('[Login] Failed to parse response:', parseError);
+            // If it's HTML (404 page), try next URL
+            if (responseText && responseText.trim().startsWith('<!')) {
+              console.log('[Login] Got HTML response (404 page) - trying next URL');
+              continue;
+            }
+            throw new Error(`Server returned invalid response. Status: ${response.status}`);
+          }
+
+          // If response is OK and result is OK, we're done
+          if (response.ok && result.ok) {
+            break;
+          }
+
+          // If we got a valid JSON response but login failed, don't try other URLs
+          if (result && typeof result === 'object' && 'ok' in result) {
+            break;
+          }
+
+        } catch (error: any) {
+          lastError = error;
+          // If it's a network error or timeout, try next URL
+          if (error.name === 'AbortError' || error.message?.includes('Network') || error.message?.includes('Failed to fetch')) {
+            console.log('[Login] Network error - trying next URL');
+            continue;
+          }
+          // For other errors, break and throw
+          break;
+        }
+      }
 
       clearTimeout(timeoutId);
 
-      let result;
-      try {
-        const text = await response.text();
-        console.log('[Login] Response text:', text.substring(0, 500));
-        result = text ? JSON.parse(text) : {};
-      } catch (parseError) {
-        console.error('[Login] Failed to parse response:', parseError);
-        throw new Error(`Server returned invalid response. Status: ${response.status}`);
+      // If we didn't get a valid response, throw error
+      if (!response || !result) {
+        if (lastError) {
+          throw lastError;
+        }
+        throw new Error(`Cannot reach login endpoint. Tried: ${loginUrls.join(', ')}\n\nMake sure:\n1. PHP server is running from backend-php/public directory\n2. Server command: cd backend-php/public && php -S 192.168.15.132:8000`);
       }
 
       if (!response.ok || !result.ok) {

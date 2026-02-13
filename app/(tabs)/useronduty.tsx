@@ -9,7 +9,7 @@ import { useTheme } from './ThemeContext';
 
 const SUPABASE_URL = 'https://cgyqweheceduyrpxqvwd.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_MJmY9d0yFuPp6KtQ62stGw_lFHMnNAK';
-const PHP_BACKEND_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.15.20:8000';
+const PHP_BACKEND_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.15.132:8000';
 
 const ON_DUTY_TYPES = [
   'Sales Support',
