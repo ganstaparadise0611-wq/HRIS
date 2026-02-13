@@ -23,7 +23,7 @@ import WheelPicker from 'react-native-wheely';
 // Backend configuration
 // Update this to your PHP backend URL (e.g., http://localhost:8000 or your deployed URL)
 // Use environment variable if available, otherwise use current IP
-const PHP_BACKEND_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.15.132:8000'; // Your computer's IP address
+const PHP_BACKEND_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.15.20:8000'; // Your computer's IP address
 
 // Supabase configuration (for direct API calls if needed)
 const SUPABASE_URL = 'https://cgyqweheceduyrpxqvwd.supabase.co';
