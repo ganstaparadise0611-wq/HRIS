@@ -3,20 +3,20 @@ import { Camera, CameraView } from 'expo-camera';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Alert,
-  Image,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  SafeAreaView,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Switch,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    Alert,
+    Image,
+    KeyboardAvoidingView,
+    Modal,
+    Platform,
+    SafeAreaView,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Switch,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import WheelPicker from 'react-native-wheely';
 import { PHP_BACKEND_URL } from '../../constants/backend-config';
@@ -251,10 +251,6 @@ export default function UserLogin() {
         throw new Error(`❌ Cannot reach server at ${PHP_BACKEND_URL}\n\n🔧 Quick Fix:\n1. Start PHP server:\n   cd backend-php\\public\n   php -S 0.0.0.0:8000\n\n2. Check server is running:\n   Open browser: ${PHP_BACKEND_URL}/signup.php\n\n3. Network check:\n   • Same WiFi network?\n   • Firewall blocking port 8000?\n   • IP address correct?`);
       }
 
-      // Create AbortController for timeout
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
-      
       // Create complete data URI to prevent PostgreSQL bytea conversion
       const faceDataUri = `data:image/jpeg;base64,${capturedBase64}`;
       

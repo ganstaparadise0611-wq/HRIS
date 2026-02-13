@@ -184,7 +184,13 @@ export default function UserProfile() {
                 for (let i = 0; i < hexString.length; i += 2) {
                   bytes.push(parseInt(hexString.substr(i, 2), 16));
                 }
-                const binaryString = String.fromCharCode.apply(null, bytes);
+                // Convert bytes to binary string in chunks to avoid stack overflow
+                let binaryString = '';
+                const chunkSize = 8192; // Process 8KB at a time
+                for (let i = 0; i < bytes.length; i += chunkSize) {
+                  const chunk = bytes.slice(i, i + chunkSize);
+                  binaryString += String.fromCharCode.apply(null, chunk);
+                }
                 faceBase64 = btoa(binaryString);
               } catch (e) {
                 console.error('[Profile] Error converting hex to base64:', e);
