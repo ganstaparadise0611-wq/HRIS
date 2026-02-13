@@ -9,7 +9,6 @@
 // - It supports either plaintext passwords (legacy) or PHP password_hash() hashes.
 // - On success, returns user data and log_id for session management.
 
-<<<<<<< HEAD
 // Set execution time limit for faster response
 set_time_limit(10); // 10 seconds max
 ini_set('max_execution_time', 10);
@@ -21,12 +20,10 @@ error_reporting(E_ALL);
 
 // Set JSON header first to ensure proper response format
 header('Content-Type: application/json');
-=======
 // #region agent log - entry point
 $logPath = __DIR__ . '/../../../.cursor/debug.log';
 @file_put_contents($logPath, json_encode(['id'=>'log_'.time().'_entry','timestamp'=>time()*1000,'location'=>'login.php:12','message'=>'Request received','data'=>['method'=>$_SERVER['REQUEST_METHOD']??'unknown','uri'=>$_SERVER['REQUEST_URI']??'unknown','has_input'=>!empty(file_get_contents('php://input'))],'runId'=>'run1','hypothesisId'=>'A'])."\n", FILE_APPEND);
 // #endregion
->>>>>>> 46990f803658c602eba69042df1d97deaa80d06b
 
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: POST, OPTIONS');
