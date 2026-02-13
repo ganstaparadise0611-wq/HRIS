@@ -7,7 +7,11 @@
 
 // PHP Backend Configuration
 // Change this IP address to match your computer's local IP or deployed server
-export const PHP_BACKEND_URL = 'http://192.168.15.24:8000';
+// Options:
+// - http://localhost:8000 (for web browser/simulator on same machine)
+// - http://192.168.15.168:8000 (for physical device on same WiFi)
+// - https://your-url.ngrok-free.dev (for ngrok tunnel - works everywhere)
+export const PHP_BACKEND_URL = 'https://ellen-subtrigonal-velda.ngrok-free.dev';
 
 // Supabase Configuration
 export const SUPABASE_URL = 'https://cgyqweheceduyrpxqvwd.supabase.co';

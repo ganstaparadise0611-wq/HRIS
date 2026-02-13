@@ -39,10 +39,19 @@ export default function UserLogin() {
       return;
     }
 
+    // Prevent duplicate clicks
+    if (loading) {
+      return;
+    }
+
     try {
       setLoading(true);
 
-      // Use PHP backend login endpoint
+      console.log('[Login] Starting login request...');
+      console.log('[Login] Server URL:', PHP_BACKEND_URL);
+      console.log('[Login] Username:', username);
+
+      // Use PHP backend login endpoint (no timeout for now to diagnose)
       const response = await fetch(`${PHP_BACKEND_URL}/login.php`, {
         method: 'POST',
         headers: {
@@ -54,17 +63,21 @@ export default function UserLogin() {
         }),
       });
 
+      console.log('[Login] Response received, status:', response.status);
+
       const result = await response.json();
       
-      console.log('[Login] Response:', result);
+      console.log('[Login] Response parsed:', result);
 
       if (!response.ok || !result.ok) {
         throw new Error(result.message || 'Login failed');
       }
 
-      // Store user info in AsyncStorage
-      await AsyncStorage.setItem('userId', result.user.log_id.toString());
-      await AsyncStorage.setItem('username', result.user.username);
+      // Store user info in AsyncStorage - wait for both to complete
+      await Promise.all([
+        AsyncStorage.setItem('userId', result.user.log_id.toString()),
+        AsyncStorage.setItem('username', result.user.username),
+      ]);
       
       console.log('[Login] Stored userId in AsyncStorage:', result.user.log_id.toString());
       
@@ -72,7 +85,21 @@ export default function UserLogin() {
 
       router.push('/userdashboard');
     } catch (error: any) {
-      Alert.alert('Login error', error.message || 'Unable to log in. Please try again.');
+      console.error('[Login] Full error object:', error);
+      console.error('[Login] Error name:', error.name);
+      console.error('[Login] Error message:', error.message);
+      
+      let errorMessage = 'Unable to log in. Please try again.';
+      
+      if (error.name === 'AbortError') {
+        errorMessage = `Request was aborted.\n\nThis should not happen anymore. Please report this error.`;
+      } else if (error.message === 'Network request failed' || error.message.includes('Network')) {
+        errorMessage = `Cannot connect to server\n\nServer: ${PHP_BACKEND_URL}\n\nSteps to fix:\n\n1. Start PHP server in terminal:\n   cd C:\\Users\\Vince\\Downloads\\HRIS-TDT\n   php -S 192.168.15.168:8000 -t backend-php/public\n\n2. Verify IP address (run: ipconfig)\n\n3. Test in browser:\n   http://192.168.15.168:8000/login.php\n\n4. Check both devices on same WiFi`;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      Alert.alert('Login Failed', errorMessage);
     } finally {
       setLoading(false);
     }
@@ -86,6 +113,11 @@ export default function UserLogin() {
 
     if (!capturedImage) {
       Alert.alert('Missing information', 'Please capture your face for verification.');
+      return;
+    }
+
+    // Prevent duplicate clicks
+    if (loading) {
       return;
     }
 
@@ -117,6 +149,10 @@ export default function UserLogin() {
       // Create complete data URI to prevent PostgreSQL bytea conversion
       const faceDataUri = `data:image/jpeg;base64,${capturedBase64}`;
       
+      // Create AbortController for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout for signup
+      
       const response = await fetch(`${PHP_BACKEND_URL}/signup.php`, {
         method: 'POST',
         headers: {
@@ -129,7 +165,10 @@ export default function UserLogin() {
           face: faceDataUri, // Store face image as complete data URI
           qr_code: qrCodeData, // Store QR code based on face
         }),
+        signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
 
       // Get response text first to handle non-JSON responses
       const responseText = await response.text();
@@ -169,7 +208,9 @@ export default function UserLogin() {
       
       let errorMsg = 'Unable to create account. Please try again.';
       
-      if (error.message === 'Network request failed') {
+      if (error.name === 'AbortError') {
+        errorMsg = 'Connection timeout. Server took too long to respond. Please try again.';
+      } else if (error.message === 'Network request failed') {
         errorMsg = `Cannot connect to server at ${PHP_BACKEND_URL}\n\nMake sure:\n1. PHP server is running\n2. Your device is connected to the same WiFi\n3. Firewall allows port 8000`;
       } else if (error.message) {
         errorMsg = error.message;

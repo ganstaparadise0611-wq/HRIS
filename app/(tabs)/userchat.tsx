@@ -82,6 +82,9 @@ export default function UserChat() {
   const [loadingMemberSuggestions, setLoadingMemberSuggestions] = useState(false);
   const [addingMember, setAddingMember] = useState(false);
   
+  // Chat info modal state
+  const [showChatInfoModal, setShowChatInfoModal] = useState(false);
+  
   const flatListRef = useRef<FlatList>(null);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const memberSearchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -409,23 +412,7 @@ export default function UserChat() {
 
   const handleConversationInfo = () => {
     if (!selectedChat) return;
-    
-    const buttons = [{ text: 'OK' }];
-    
-    if (selectedChat.type === 'channel') {
-      buttons.unshift({
-        text: 'Add Member',
-        onPress: () => setShowAddMemberModal(true)
-      });
-    }
-    
-    Alert.alert(
-      selectedChat.name,
-      `Type: ${selectedChat.type === 'channel' ? 'Channel' : 'Direct Message'}\n` +
-      `Members: ${selectedChat.type === 'channel' ? 'Multiple' : '2'}\n` +
-      `Created: Recently`,
-      buttons
-    );
+    setShowChatInfoModal(true);
   };
 
   const searchMembersToAdd = async (query: string) => {
@@ -582,8 +569,13 @@ export default function UserChat() {
               <Text style={[styles.onlineStatus, { color: '#2ecc71' }]}>● Online</Text>
             )}
           </View>
-          <TouchableOpacity style={styles.iconBtn} onPress={handleConversationInfo}>
-            <Ionicons name="information-circle-outline" size={24} color={colors.text} />
+          <TouchableOpacity 
+            style={styles.iconBtn} 
+            onPress={handleConversationInfo}
+            activeOpacity={0.6}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Ionicons name="information-circle" size={26} color={colors.text} />
           </TouchableOpacity>
         </View>
 
@@ -634,6 +626,57 @@ export default function UserChat() {
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
+
+        {/* Chat Info Modal */}
+        <Modal
+          visible={showChatInfoModal}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowChatInfoModal(false)}
+        >
+          <View style={styles.chatInfoOverlay}>
+            <View style={[styles.chatInfoModal, dyn.bg]}>
+              <View style={[styles.modalHeader, dyn.border]}>
+                <Text style={[styles.modalTitle, dyn.text]}>Chat Information</Text>
+                <TouchableOpacity onPress={() => setShowChatInfoModal(false)} style={styles.iconBtn}>
+                  <Ionicons name="close" size={24} color={colors.text} />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.chatInfoContent}>
+                <View style={styles.chatInfoItem}>
+                  <Ionicons name="chatbubbles" size={24} color="#F27121" />
+                  <View style={styles.chatInfoTextContainer}>
+                    <Text style={[styles.chatInfoLabel, dyn.sub]}>Chat Name</Text>
+                    <Text style={[styles.chatInfoValue, dyn.text]}>{selectedChat?.name}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.chatInfoItem}>
+                  <Ionicons name={selectedChat?.type === 'channel' ? 'people' : 'person'} size={24} color="#F27121" />
+                  <View style={styles.chatInfoTextContainer}>
+                    <Text style={[styles.chatInfoLabel, dyn.sub]}>Type</Text>
+                    <Text style={[styles.chatInfoValue, dyn.text]}>
+                      {selectedChat?.type === 'channel' ? 'Group Chat' : 'Direct Message'}
+                    </Text>
+                  </View>
+                </View>
+
+                {selectedChat?.type === 'dm' && (
+                  <View style={styles.chatInfoItem}>
+                    <Ionicons name="radio-button-on" size={24} color={selectedChat?.online ? '#2ecc71' : '#95a5a6'} />
+                    <View style={styles.chatInfoTextContainer}>
+                      <Text style={[styles.chatInfoLabel, dyn.sub]}>Status</Text>
+                      <Text style={[styles.chatInfoValue, dyn.text]}>
+                        {selectedChat?.online ? 'Active now' : 'Offline'}
+                      </Text>
+                    </View>
+                  </View>
+                )}
+              </View>
+            </View>
+          </View>
+        </Modal>
       </SafeAreaView>
     );
   }
@@ -962,7 +1005,7 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottomWidth: 1 },
   headerTitle: { fontSize: 18, fontWeight: 'bold' },
-  iconBtn: { padding: 5 },
+  iconBtn: { padding: 8, minWidth: 40, minHeight: 40, justifyContent: 'center', alignItems: 'center' },
   searchContainer: { flexDirection: 'row', alignItems: 'center', margin: 20, paddingHorizontal: 15, borderRadius: 10, height: 45 },
   searchIcon: { marginRight: 10 },
   searchInput: { flex: 1 },
@@ -984,7 +1027,7 @@ const styles = StyleSheet.create({
   unreadText: { color: '#FFF', fontSize: 10, fontWeight: 'bold' },
   
   // Conversation View Styles
-  conversationHeader: { flex: 1, alignItems: 'center' },
+  conversationHeader: { flex: 1, alignItems: 'center', marginHorizontal: 10 },
   onlineStatus: { fontSize: 12, marginTop: 2 },
   conversationContainer: { flex: 1 },
   messagesContainer: { padding: 20 },
@@ -1186,5 +1229,45 @@ const styles = StyleSheet.create({
   noResultsHint: {
     fontSize: 12,
     marginTop: 4
+  },
+
+  // Chat Info Modal Styles
+  chatInfoOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20
+  },
+  chatInfoModal: {
+    width: '85%',
+    maxWidth: 400,
+    borderRadius: 12,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5
+  },
+  chatInfoContent: {
+    padding: 20
+  },
+  chatInfoItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+    gap: 16
+  },
+  chatInfoTextContainer: {
+    flex: 1
+  },
+  chatInfoLabel: {
+    fontSize: 12,
+    marginBottom: 4
+  },
+  chatInfoValue: {
+    fontSize: 16,
+    fontWeight: '600'
   }
 });
