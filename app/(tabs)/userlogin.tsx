@@ -19,11 +19,7 @@ import {
   View,
 } from 'react-native';
 import WheelPicker from 'react-native-wheely';
-
-// Backend configuration
-// Update this to your PHP backend URL (e.g., http://localhost:8000 or your deployed URL)
-// Use environment variable if available, otherwise use current IP
-const PHP_BACKEND_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.15.20:8000'; // Your computer's IP address
+import { PHP_BACKEND_URL } from '../../constants/backend-config';
 
 // Supabase configuration (for direct API calls if needed)
 const SUPABASE_URL = 'https://cgyqweheceduyrpxqvwd.supabase.co';
@@ -130,101 +126,35 @@ export default function UserLogin() {
       return;
     }
 
+    // Prevent duplicate clicks
+    if (loading) {
+      return;
+    }
+
     try {
       setLoading(true);
 
-      // Try multiple URL paths to find the working one
-      const loginUrls = [
-        `${PHP_BACKEND_URL}/login.php`,
-        `${PHP_BACKEND_URL}/public/login.php`,
-      ];
+      console.log('[Login] Starting login request...');
+      console.log('[Login] Server URL:', PHP_BACKEND_URL);
+      console.log('[Login] Username:', username);
 
-      let response: Response | null = null;
-      let result: any = null;
-      let lastError: any = null;
+      // Use PHP backend login endpoint (no timeout for now to diagnose)
+      const response = await fetch(`${PHP_BACKEND_URL}/login.php`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          username: username,
+          password: password,
+        }),
+      });
 
-      // Create AbortController for timeout
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+      console.log('[Login] Response received, status:', response.status);
 
-      // Try each URL until one works
-      for (const url of loginUrls) {
-        try {
-          console.log('[Login] Trying:', url);
-          
-          response = await fetch(url, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json',
-            },
-            body: JSON.stringify({
-              username: username,
-              password: password,
-            }),
-            signal: controller.signal,
-          });
-
-          clearTimeout(timeoutId);
-
-          // If 404, try next URL
-          if (response.status === 404) {
-            console.log('[Login] 404 - trying next URL');
-            continue;
-          }
-
-          // Try to parse response
-          let responseText = '';
-          try {
-            responseText = await response.text();
-            console.log('[Login] Response text:', responseText.substring(0, 500));
-            // If it's HTML (404 page), try next URL
-            if (responseText.trim().startsWith('<!')) {
-              console.log('[Login] Got HTML response (404 page) - trying next URL');
-              continue;
-            }
-            result = responseText ? JSON.parse(responseText) : {};
-          } catch (parseError) {
-            console.error('[Login] Failed to parse response:', parseError);
-            // If it's HTML (404 page), try next URL
-            if (responseText && responseText.trim().startsWith('<!')) {
-              console.log('[Login] Got HTML response (404 page) - trying next URL');
-              continue;
-            }
-            throw new Error(`Server returned invalid response. Status: ${response.status}`);
-          }
-
-          // If response is OK and result is OK, we're done
-          if (response.ok && result.ok) {
-            break;
-          }
-
-          // If we got a valid JSON response but login failed, don't try other URLs
-          if (result && typeof result === 'object' && 'ok' in result) {
-            break;
-          }
-
-        } catch (error: any) {
-          lastError = error;
-          // If it's a network error or timeout, try next URL
-          if (error.name === 'AbortError' || error.message?.includes('Network') || error.message?.includes('Failed to fetch')) {
-            console.log('[Login] Network error - trying next URL');
-            continue;
-          }
-          // For other errors, break and throw
-          break;
-        }
-      }
-
-      clearTimeout(timeoutId);
-
-      // If we didn't get a valid response, throw error
-      if (!response || !result) {
-        if (lastError) {
-          throw lastError;
-        }
-        throw new Error(`Cannot reach login endpoint. Tried: ${loginUrls.join(', ')}\n\nMake sure:\n1. PHP server is running from backend-php/public directory\n2. Server command: cd backend-php/public && php -S 192.168.15.132:8000`);
-      }
+      const result = await response.json();
+      
+      console.log('[Login] Response parsed:', result);
 
       if (!response.ok || !result.ok) {
         // Include detail and hint in error message if available
@@ -238,9 +168,11 @@ export default function UserLogin() {
         throw new Error(errorMsg);
       }
 
-      // Store user info in AsyncStorage
-      await AsyncStorage.setItem('userId', result.user.log_id.toString());
-      await AsyncStorage.setItem('username', result.user.username);
+      // Store user info in AsyncStorage - wait for both to complete
+      await Promise.all([
+        AsyncStorage.setItem('userId', result.user.log_id.toString()),
+        AsyncStorage.setItem('username', result.user.username),
+      ]);
       
       console.log('[Login] Stored userId in AsyncStorage:', result.user.log_id.toString());
       
@@ -248,27 +180,21 @@ export default function UserLogin() {
 
       router.push('/userdashboard');
     } catch (error: any) {
-      console.error('Login error:', error);
+      console.error('[Login] Full error object:', error);
+      console.error('[Login] Error name:', error.name);
+      console.error('[Login] Error message:', error.message);
       
-      // Better error handling for network issues
       let errorMessage = 'Unable to log in. Please try again.';
       
-      if (error.message?.includes('Cannot reach server') || error.message?.includes('❌')) {
-        errorMessage = error.message; // Already has troubleshooting info
-      } else if (error.name === 'AbortError' || error.message?.includes('Aborted')) {
-        errorMessage = `Request timed out after 30 seconds.\n\nPossible issues:\n1. PHP server is not running at ${PHP_BACKEND_URL}\n2. Your device is not on the same WiFi network\n3. Firewall is blocking port 8000\n4. Server is too slow to respond\n\nPlease check:\n- Is PHP server running? (Check terminal)\n- Is your phone on the same WiFi?\n- Try restarting the PHP server`;
-      } else if (error.message?.includes('timeout') || error.message?.includes('timed out')) {
-        errorMessage = `Request timed out. The server might be slow or unreachable.\n\nCheck:\n1. PHP server is running at ${PHP_BACKEND_URL}\n2. Your device is on the same WiFi\n3. Try again in a moment`;
-      } else if (error.message?.includes('Network request failed') || error.message?.includes('Failed to fetch')) {
-        errorMessage = `Cannot connect to server at ${PHP_BACKEND_URL}\n\nMake sure:\n1. PHP server is running\n2. Your device is on the same WiFi\n3. Firewall allows port 8000`;
-      } else if (error.message?.includes('Database connection error') || error.message?.includes('Database error')) {
-        // Show detailed database error - detail and hint are already included in error.message from the try block
-        errorMessage = error.message;
+      if (error.name === 'AbortError') {
+        errorMessage = `Request was aborted.\n\nThis should not happen anymore. Please report this error.`;
+      } else if (error.message === 'Network request failed' || error.message.includes('Network')) {
+        errorMessage = `Cannot connect to server\n\nServer: ${PHP_BACKEND_URL}\n\nSteps to fix:\n\n1. Start PHP server in terminal:\n   cd C:\\Users\\Vince\\Downloads\\HRIS-TDT\n   php -S 192.168.15.168:8000 -t backend-php/public\n\n2. Verify IP address (run: ipconfig)\n\n3. Test in browser:\n   http://192.168.15.168:8000/login.php\n\n4. Check both devices on same WiFi`;
       } else if (error.message) {
         errorMessage = error.message;
       }
       
-      Alert.alert('Login error', errorMessage);
+      Alert.alert('Login Failed', errorMessage);
     } finally {
       setLoading(false);
     }
@@ -287,6 +213,11 @@ export default function UserLogin() {
 
     if (!capturedImage) {
       Alert.alert('Missing information', 'Please capture your face for verification.');
+      return;
+    }
+
+    // Prevent duplicate clicks
+    if (loading) {
       return;
     }
 
@@ -324,6 +255,13 @@ export default function UserLogin() {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
       
+      // Create complete data URI to prevent PostgreSQL bytea conversion
+      const faceDataUri = `data:image/jpeg;base64,${capturedBase64}`;
+      
+      // Create AbortController for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout for signup
+      
       const response = await fetch(`${PHP_BACKEND_URL}/signup.php`, {
         method: 'POST',
         headers: {
@@ -333,7 +271,7 @@ export default function UserLogin() {
         body: JSON.stringify({
           username,
           password, // Backend can handle password hashing
-          face: capturedBase64, // Store face image as base64
+          face: faceDataUri, // Store face image as complete data URI
           qr_code: qrCodeData, // Store QR code based on face
           // Profile fields
           name,
@@ -347,6 +285,8 @@ export default function UserLogin() {
         signal: controller.signal,
       });
       
+      clearTimeout(timeoutId);
+
       clearTimeout(timeoutId);
 
       // Get response text first to handle non-JSON responses
@@ -387,15 +327,10 @@ export default function UserLogin() {
       
       let errorMsg = error.message || 'Unable to create account. Please try again.';
       
-      // Provide more helpful error messages
-      if (error.message?.includes('Cannot reach server') || error.message?.includes('❌')) {
-        errorMsg = error.message; // Already has troubleshooting info
-      } else if (error.name === 'AbortError' || error.message?.includes('Aborted')) {
-        errorMsg = `Request timed out after 30 seconds.\n\nPossible issues:\n1. PHP server is not running at ${PHP_BACKEND_URL}\n2. Your device is not on the same WiFi network\n3. Firewall is blocking port 8000\n4. Server is too slow to respond\n\nPlease check:\n- Is PHP server running? (Check terminal)\n- Is your phone on the same WiFi?\n- Try restarting the PHP server`;
-      } else if (error.message?.includes('timeout') || error.message?.includes('timed out') || error.message?.includes('unreachable')) {
-        errorMsg = `Request timed out. The server might be slow or unreachable.\n\nCheck:\n1. PHP server is running at ${PHP_BACKEND_URL}\n2. Your device is on the same WiFi\n3. Try again in a moment`;
-      } else if (error.message?.includes('Network request failed') || error.message?.includes('Failed to fetch')) {
-        errorMsg = `Cannot connect to server at ${PHP_BACKEND_URL}\n\nMake sure:\n1. PHP server is running\n2. Your device is on the same WiFi\n3. Firewall allows port 8000`;
+      if (error.name === 'AbortError') {
+        errorMsg = 'Connection timeout. Server took too long to respond. Please try again.';
+      } else if (error.message === 'Network request failed') {
+        errorMsg = `Cannot connect to server at ${PHP_BACKEND_URL}\n\nMake sure:\n1. PHP server is running\n2. Your device is connected to the same WiFi\n3. Firewall allows port 8000`;
       } else if (error.message) {
         errorMsg = error.message;
       }

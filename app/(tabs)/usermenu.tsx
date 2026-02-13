@@ -103,6 +103,13 @@ export default function UserMenu() {
     { icon: 'help-circle-outline', label: 'Help & Support', sub: 'FAQs' },
   ];
 
+  const handleMenuPress = (label: string) => {
+    if (label === 'My Profile') {
+      router.push('/userprofile');
+    }
+    // Add more navigation cases here as needed
+  };
+
   const handleLogout = () => {
     Alert.alert("Logout", "Are you sure you want to log out?", [
       { text: "Cancel", style: "cancel" },
@@ -267,11 +274,7 @@ export default function UserMenu() {
                 <TouchableOpacity 
                     key={index} 
                     style={[styles.menuItem, dynamicStyles.border]}
-                    onPress={() => {
-                        if (item.label === 'Security') {
-                            handleSecurityPress();
-                        }
-                    }}
+                    onPress={() => handleMenuPress(item.label)}
                 >
                     <View style={[styles.menuIconBox, dynamicStyles.iconBox]}>
                         <Ionicons name={item.icon as any} size={22} color={colors.text} />
