@@ -8,7 +8,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from './ThemeContext'; // <--- IMPORT HOOK
 
 const { width } = Dimensions.get('window');
-const API_URL = process.env.EXPO_PUBLIC_API_URL;
+// Backend configuration - Update this to your PHP backend URL
+const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.15.20:8000';
 
 export default function UserAttendance() {
   const router = useRouter();
@@ -58,6 +59,15 @@ export default function UserAttendance() {
 
   const verifyFace = async (photoUri: string) => {
     if (!API_URL) throw new Error('Missing EXPO_PUBLIC_API_URL');
+    
+    // Get logged-in user ID from AsyncStorage for fallback matching
+    let userId = null;
+    try {
+      userId = await AsyncStorage.getItem('userId');
+    } catch (e) {
+      console.log('Could not get userId from storage');
+    }
+    
     const form = new FormData();
     form.append('photo', {
       uri: photoUri,
@@ -65,23 +75,94 @@ export default function UserAttendance() {
       type: 'image/jpeg',
     } as any);
     form.append('clock_time', formattedTime);
-
-    const response = await fetch(`${API_URL}/verify.php`, {
-      method: 'POST',
-      body: form,
-      headers: { Accept: 'application/json' },
-    });
-
-    const json = await response.json().catch(() => ({}));
-    if (!response.ok || !json.ok) {
-      throw new Error(json.message || 'Verification failed');
+    if (userId) {
+      form.append('user_id', userId);
     }
-    return json;
+
+    try {
+      // Create AbortController for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 seconds timeout (increased for face comparison)
+
+      const response = await fetch(`${API_URL}/verify.php`, {
+        method: 'POST',
+        body: form,
+        headers: { Accept: 'application/json' },
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      // Get response text first to handle both JSON and non-JSON responses
+      const responseText = await response.text();
+      console.log('[Verify] Response status:', response.status);
+      console.log('[Verify] Response text (first 500 chars):', responseText.substring(0, 500));
+      
+      let json: any = {};
+      try {
+        json = responseText ? JSON.parse(responseText) : {};
+      } catch (parseError) {
+        console.error('[Verify] JSON parse error:', parseError);
+        console.error('[Verify] Response was:', responseText);
+        throw new Error(`Server returned invalid response. Status: ${response.status}\n\nResponse: ${responseText.substring(0, 200)}`);
+      }
+      
+      if (!response.ok || !json.ok) {
+        // Get detailed error message from backend
+        let errorMsg = json.message || 'Verification failed';
+        
+        // Add hint if available
+        if (json.hint) {
+          errorMsg += `\n\n${json.hint}`;
+        }
+        
+        // Add debug info if available
+        if (json.debug_info) {
+          const debug = json.debug_info;
+          errorMsg += `\n\nDebug Info:`;
+          errorMsg += `\n- Accounts checked: ${debug.accounts_checked || 0}`;
+          errorMsg += `\n- Best match score: ${debug.best_match_score || 0}`;
+          errorMsg += `\n- Required threshold: ${debug.required_threshold || 0}`;
+          errorMsg += `\n- Luxand API: ${debug.luxand_api_configured ? 'Yes' : 'No'}`;
+          errorMsg += `\n- Method: ${debug.comparison_method || 'unknown'}`;
+          if (debug.luxand_error) {
+            errorMsg += `\n- Luxand Error: ${debug.luxand_error}`;
+          }
+        }
+        
+        // Add match score if available
+        if (json.match_score !== undefined) {
+          errorMsg += `\n\nMatch Score: ${json.match_score} (Threshold: ${json.threshold || 0.65})`;
+        }
+        
+        // Add best match username if available
+        if (json.best_match_username) {
+          errorMsg += `\n- Best match: ${json.best_match_username}`;
+        }
+        
+        throw new Error(errorMsg);
+      }
+      return json;
+    } catch (error: any) {
+      // Better error handling for network issues
+      if (error.name === 'AbortError' || error.message?.includes('timeout')) {
+        throw new Error(`Request timed out. The server might be slow or unreachable.\n\nCheck:\n1. PHP server is running at ${API_URL}\n2. Your device is on the same WiFi\n3. Try again in a moment`);
+      }
+      if (error.message?.includes('Network request failed') || error.message?.includes('Failed to fetch')) {
+        throw new Error(`Cannot connect to server at ${API_URL}\n\nMake sure:\n1. PHP server is running\n2. Your device is on the same WiFi\n3. Firewall allows port 8000`);
+      }
+      throw error;
+    }
   };
 
   const runVerification = async () => {
     if (!cameraRef.current) throw new Error('Camera not ready');
-    const photo = await cameraRef.current.takePictureAsync({ quality: 0.6, skipProcessing: true });
+    // Use same quality as signup (0.7) for better face recognition accuracy
+    const photo = await cameraRef.current.takePictureAsync({ 
+      quality: 0.7, // Increased from 0.6 to match signup quality
+      skipProcessing: false, // Enable processing for better image quality
+      base64: false // Not needed for verification, saves memory
+    });
     if (!photo?.uri) throw new Error('No image captured');
     return verifyFace(photo.uri);
   };
@@ -109,7 +190,9 @@ export default function UserAttendance() {
         await AsyncStorage.setItem('userClockInTime', formattedTime);
         Alert.alert("Verified", result?.message || "Face match success. You are clocked in.");
     } catch (e: any) {
-        Alert.alert("Verification failed", e?.message || "Please try again.");
+        console.error('Verification error:', e);
+        const errorMessage = e?.message || "Please try again.";
+        Alert.alert("Verification failed", errorMessage);
     } finally {
         setIsVerifying(false);
     }

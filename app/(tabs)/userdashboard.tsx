@@ -6,20 +6,59 @@ import React, { useCallback, useState } from 'react';
 import { SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useTheme } from './ThemeContext';
 
+const SUPABASE_URL = 'https://cgyqweheceduyrpxqvwd.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_MJmY9d0yFuPp6KtQ62stGw_lFHMnNAK';
+
 export default function UserDashboard() {
   const router = useRouter();
   const { colors, theme } = useTheme();
   const isDark = theme === 'dark';
   
   const currentDate = new Date().toDateString();
-  const [clockInTime, setClockInTime] = useState<string | null>(null); 
+  const [clockInTime, setClockInTime] = useState<string | null>(null);
+  const [userName, setUserName] = useState<string>('User');
 
   useFocusEffect(
     useCallback(() => {
       const loadStatus = async () => {
         try {
             const savedTime = await AsyncStorage.getItem('userClockInTime');
-            setClockInTime(savedTime); 
+            setClockInTime(savedTime);
+            
+            // Load user name from employees table
+            const userId = await AsyncStorage.getItem('userId');
+            if (userId) {
+              try {
+                const response = await fetch(
+                  `${SUPABASE_URL}/rest/v1/employees?log_id=eq.${userId}&select=name`,
+                  {
+                    method: 'GET',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      apikey: SUPABASE_ANON_KEY,
+                      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+                    },
+                  }
+                );
+                const data = await response.json();
+                if (data && data.length > 0 && data[0].name) {
+                  setUserName(data[0].name);
+                } else {
+                  // Fallback to username from AsyncStorage
+                  const username = await AsyncStorage.getItem('username');
+                  if (username) {
+                    setUserName(username);
+                  }
+                }
+              } catch (e) {
+                console.log('Error loading user name:', e);
+                // Fallback to username from AsyncStorage
+                const username = await AsyncStorage.getItem('username');
+                if (username) {
+                  setUserName(username);
+                }
+              }
+            }
         } catch (e) {
             console.log("Error loading time");
         }
@@ -47,7 +86,7 @@ export default function UserDashboard() {
         {/* HEADER */}
         <View style={styles.header}>
           <View>
-            <Text style={[styles.greeting, dyn.text]}>Hi, IT Intern</Text>
+            <Text style={[styles.greeting, dyn.text]}>Hi, {userName}</Text>
             <Text style={[styles.subGreeting, dyn.sub]}>Lets be productive today.</Text>
           </View>
           <TouchableOpacity 
@@ -90,6 +129,7 @@ export default function UserDashboard() {
             { label: 'Payslip', icon: 'file-invoice-dollar', route: '/userpayslip', lib: FontAwesome5 },
             { label: 'Overtime', icon: 'clock-fast', route: '/userovertime', lib: MaterialCommunityIcons },
             { label: 'Leave', icon: 'calendar-remove', route: '/userleave', lib: MaterialCommunityIcons },
+            { label: 'On Duty', icon: 'airplane', route: '/useronduty', lib: Ionicons },
             { label: 'More', icon: 'grid-outline', route: '/usermenu', lib: Ionicons },
           ].map((item, index) => (
              <TouchableOpacity key={index} style={[styles.gridItem, dyn.card]} onPress={() => item.route && router.push(item.route as any)}>

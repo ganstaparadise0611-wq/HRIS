@@ -9,6 +9,18 @@
 // - It supports either plaintext passwords (legacy) or PHP password_hash() hashes.
 // - On success, returns user data and log_id for session management.
 
+// Set execution time limit for faster response
+set_time_limit(10); // 10 seconds max
+ini_set('max_execution_time', 10);
+
+// Suppress error output to prevent HTML errors from breaking JSON response
+ini_set('display_errors', 0);
+ini_set('log_errors', 1);
+error_reporting(E_ALL);
+
+// Set JSON header first to ensure proper response format
+header('Content-Type: application/json');
+
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: POST, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, Authorization, Accept');
@@ -17,8 +29,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(204);
     exit;
 }
-
-header('Content-Type: application/json');
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
@@ -49,18 +59,39 @@ if ($username === '' || $password === '') {
 // Fetch the account by username
 [$status, $data, $err] = supabase_request(
     'GET', 
-    "rest/v1/accounts?username=eq." . urlencode($username)
+    "rest/v1/accounts?username=eq." . urlencode($username) . "&select=log_id,username,password"
 );
 
 if ($err) {
     http_response_code(500);
-    echo json_encode(['ok' => false, 'message' => 'Database error', 'detail' => $err]);
+    error_log("Login error - Supabase connection failed: " . $err);
+    
+    // Provide more helpful error message
+    $errorMessage = 'Database connection error. Please check server configuration.';
+    if (strpos($err, 'timeout') !== false) {
+        $errorMessage = 'Database connection timed out. This usually means:\n1. Slow or unstable internet connection\n2. Supabase service is temporarily unavailable\n3. Firewall blocking HTTPS connections\n\nPlease check your internet connection and try again.';
+    } elseif (strpos($err, '401') !== false || strpos($err, 'Unauthorized') !== false) {
+        $errorMessage = 'Database authentication failed. Please check if Supabase API key is correct in connect.php';
+    }
+    
+    echo json_encode([
+        'ok' => false, 
+        'message' => $errorMessage,
+        'detail' => $err,
+        'hint' => 'Check:\n1. Internet connection is working\n2. Supabase URL and API key are correct in connect.php\n3. Firewall allows outbound HTTPS connections'
+    ]);
     exit;
 }
 
 if ($status !== 200) {
     http_response_code(500);
-    echo json_encode(['ok' => false, 'message' => 'Unexpected response from database', 'status' => $status]);
+    error_log("Login error - Supabase returned status $status");
+    echo json_encode([
+        'ok' => false, 
+        'message' => 'Database error. Unable to connect to Supabase.',
+        'status' => $status,
+        'hint' => 'Check Supabase URL and API key in connect.php, and verify your internet connection.'
+    ]);
     exit;
 }
 

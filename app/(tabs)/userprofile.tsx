@@ -5,6 +5,7 @@ import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
+    Image,
     Modal,
     SafeAreaView,
     ScrollView,
@@ -65,6 +66,7 @@ export default function UserProfile() {
   });
 
   const [editedProfile, setEditedProfile] = useState<UserProfile>(profile);
+  const [faceImageUri, setFaceImageUri] = useState<string | null>(null);
   
   // Generate years (1950 to current year)
   const years = Array.from({ length: currentYear - 1949 }, (_, i) => currentYear - i);
@@ -150,6 +152,66 @@ export default function UserProfile() {
           if (deptData && deptData.length > 0) {
             employee.department_name = deptData[0].name;
           }
+        }
+        
+        // Fetch face image from accounts table
+        console.log('[Profile] Fetching face image for log_id:', userId);
+        try {
+          const faceResponse = await fetch(
+            `${SUPABASE_URL}/rest/v1/accounts?log_id=eq.${userId}&select=face`,
+            {
+              method: 'GET',
+              headers: {
+                'Content-Type': 'application/json',
+                apikey: SUPABASE_ANON_KEY,
+                Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+              },
+            }
+          );
+          const faceData = await faceResponse.json();
+          console.log('[Profile] Face data response:', faceData);
+          
+          if (faceData && faceData.length > 0 && faceData[0].face) {
+            let faceBase64 = faceData[0].face;
+            
+            // Normalize face data format (handle different formats from database)
+            // Handle PostgreSQL bytea escape format: \x2f396a2f34...
+            if (faceBase64.startsWith('\\x')) {
+              const hexString = faceBase64.substring(2);
+              // Convert hex to base64 in React Native
+              try {
+                const bytes = [];
+                for (let i = 0; i < hexString.length; i += 2) {
+                  bytes.push(parseInt(hexString.substr(i, 2), 16));
+                }
+                const binaryString = String.fromCharCode.apply(null, bytes);
+                faceBase64 = btoa(binaryString);
+              } catch (e) {
+                console.error('[Profile] Error converting hex to base64:', e);
+                setFaceImageUri(null);
+                return;
+              }
+            }
+            // Handle data URI format: data:image/jpeg;base64,/9j/4AAQ...
+            else if (faceBase64.startsWith('data:image')) {
+              const commaPos = faceBase64.indexOf(',');
+              if (commaPos !== -1) {
+                faceBase64 = faceBase64.substring(commaPos + 1);
+              }
+            }
+            // Pure base64 - use as is
+            
+            // Create data URI for Image component
+            const faceUri = `data:image/jpeg;base64,${faceBase64}`;
+            setFaceImageUri(faceUri);
+            console.log('[Profile] Face image loaded successfully');
+          } else {
+            console.log('[Profile] No face image found in database');
+            setFaceImageUri(null);
+          }
+        } catch (faceError) {
+          console.error('[Profile] Error fetching face image:', faceError);
+          setFaceImageUri(null);
         }
         
         console.log('[Profile] Setting profile state:', employee);
@@ -332,7 +394,15 @@ export default function UserProfile() {
         {/* PROFILE PICTURE */}
         <View style={styles.profilePictureContainer}>
           <View style={styles.profilePicture}>
-            <Ionicons name="person" size={60} color="#F27121" />
+            {faceImageUri ? (
+              <Image 
+                source={{ uri: faceImageUri }} 
+                style={styles.profileImage}
+                resizeMode="cover"
+              />
+            ) : (
+              <Ionicons name="person" size={60} color="#F27121" />
+            )}
           </View>
           {editing && (
             <TouchableOpacity style={styles.changePictureButton}>
@@ -677,6 +747,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 3,
     borderColor: '#F27121',
+    overflow: 'hidden',
+  },
+  profileImage: {
+    width: '100%',
+    height: '100%',
   },
   changePictureButton: {
     position: 'absolute',

@@ -17,6 +17,7 @@ export default function RootLayout() {
         <Stack.Screen name="userchat" />
         <Stack.Screen name="userpayslip" />
         <Stack.Screen name="userovertime" />
+        <Stack.Screen name="useronduty" />
         <Stack.Screen name="usermenu" />
       </Stack>
     </ThemeProvider>

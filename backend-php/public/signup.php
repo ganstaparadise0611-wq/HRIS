@@ -25,6 +25,15 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 
 require_once __DIR__ . '/connect.php';
 
+// Try to load Luxand Face API helper (optional - for face registration)
+$luxandFaceApiAvailable = false;
+if (file_exists(__DIR__ . '/luxand_face_api.php')) {
+    require_once __DIR__ . '/luxand_face_api.php';
+    if (function_exists('luxand_face_api_configured')) {
+        $luxandFaceApiAvailable = luxand_face_api_configured();
+    }
+}
+
 $raw = file_get_contents('php://input') ?: '';
 $body = json_decode($raw, true);
 
@@ -38,6 +47,15 @@ $username = trim($body['username'] ?? '');
 $password = $body['password'] ?? '';
 $face = $body['face'] ?? '';
 $qr_code = $body['qr_code'] ?? '';
+
+// Profile fields
+$name = trim($body['name'] ?? '');
+$phone = trim($body['phone'] ?? '');
+$birthday = $body['birthday'] ?? null;
+$address = trim($body['address'] ?? '');
+$gender = trim($body['gender'] ?? '');
+$role = trim($body['role'] ?? 'Employee');
+$dept_id = isset($body['dept_id']) && $body['dept_id'] !== null ? (int)$body['dept_id'] : null;
 
 if (!$username || !$password) {
     http_response_code(400);
@@ -122,17 +140,30 @@ if (is_array($insertData) && isset($insertData[0]['log_id'])) {
     $accountLogId = $insertData[0]['log_id'];
 }
 
+// Register face with Luxand if available (for better face recognition)
+if ($accountLogId && $luxandFaceApiAvailable && function_exists('luxand_add_person')) {
+    $personName = "user_{$accountLogId}_{$username}"; // Unique identifier
+    $luxandPersonId = luxand_add_person($face, $personName);
+    if ($luxandPersonId) {
+        error_log("Luxand: Face registered successfully for user $username (person_id: $luxandPersonId)");
+    } else {
+        $luxandError = function_exists('luxand_get_last_error') ? luxand_get_last_error() : 'Unknown error';
+        error_log("Luxand: Failed to register face for user $username: $luxandError");
+        // Don't fail signup if Luxand registration fails
+    }
+}
+
 // Create corresponding employee record
 if ($accountLogId) {
     [$empStatus, $empData, $empErr] = supabase_insert('employees', [
         'log_id' => $accountLogId,
-        'name' => $username, // Default to username, user can update later
-        'phone' => 0,
-        'birthday' => null,
-        'address' => '',
-        'gender' => '',
-        'role' => 'Employee',
-        'dept_id' => null,
+        'name' => $name ?: $username, // Use provided name or fallback to username
+        'phone' => $phone ?: '',
+        'birthday' => $birthday,
+        'address' => $address,
+        'gender' => $gender,
+        'role' => $role ?: 'Employee',
+        'dept_id' => $dept_id,
     ]);
     
     // Log if employee creation fails, but don't fail the signup
