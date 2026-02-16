@@ -164,6 +164,7 @@ export default function UserMenu() {
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
         },
         body: JSON.stringify({
           user_id: parseInt(userId, 10),

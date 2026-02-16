@@ -3,10 +3,10 @@ import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import { Alert, Animated, Modal, Platform, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 // @ts-ignore - DateTimePicker types may not be available
-import DateTimePicker from '@react-native-community/datetimepicker';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { GestureHandlerRootView, Swipeable } from 'react-native-gesture-handler';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from './ThemeContext';
 
 // Supabase configuration (same project as login)
@@ -385,6 +385,7 @@ export default function UserLeave() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
         },
         body: JSON.stringify({
           action: 'create',
@@ -473,6 +474,7 @@ export default function UserLeave() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
         },
         body: JSON.stringify({
           action: 'update',
@@ -524,6 +526,7 @@ export default function UserLeave() {
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',
+                  'ngrok-skip-browser-warning': 'true',
                 },
                 body: JSON.stringify({
                   action: 'delete',

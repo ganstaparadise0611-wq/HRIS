@@ -1,5 +1,5 @@
-# Update Backend Config with Ngrok URL
-# Usage: .\update-backend-url.ps1 "https://your-ngrok-url.ngrok-free.app"
+#!/usr/bin/env pwsh
+# Update the backend URL in the app configuration
 
 param(
     [Parameter(Mandatory=$true)]
@@ -8,19 +8,26 @@ param(
 
 $configFile = "constants\backend-config.ts"
 
-if (Test-Path $configFile) {
-    $content = Get-Content $configFile -Raw
-    
-    # Replace the URL in the config file
-    $content = $content -replace "export const PHP_BACKEND_URL = '[^']*';", "export const PHP_BACKEND_URL = '$NgrokUrl';"
-    
-    Set-Content $configFile -Value $content -NoNewline
-    
-    Write-Host "✅ Updated backend-config.ts with: $NgrokUrl" -ForegroundColor Green
-    Write-Host ""
-    Write-Host "Next steps:" -ForegroundColor Cyan
-    Write-Host "1. Restart your Expo app (press 'r' in the terminal)" -ForegroundColor White
-    Write-Host "2. Try logging in again!" -ForegroundColor White
-} else {
-    Write-Host "❌ Error: Could not find $configFile" -ForegroundColor Red
-}
+# Remove trailing slash if present
+$NgrokUrl = $NgrokUrl.TrimEnd('/')
+
+Write-Host "Updating backend configuration..." -ForegroundColor Green
+Write-Host "New URL: $NgrokUrl" -ForegroundColor Cyan
+Write-Host ""
+
+# Read the file
+$content = Get-Content $configFile -Raw
+
+# Replace the URL
+$pattern = "export const PHP_BACKEND_URL = '.*';"
+$replacement = "export const PHP_BACKEND_URL = '$NgrokUrl';"
+$newContent = $content -replace $pattern, $replacement
+
+# Write back to file
+$newContent | Set-Content $configFile -NoNewline
+
+Write-Host "✓ Updated $configFile" -ForegroundColor Green
+Write-Host ""
+Write-Host "Next steps:" -ForegroundColor Yellow
+Write-Host "1. Restart your Expo app (press 'r' in terminal or shake device)" -ForegroundColor White
+Write-Host "2. Try logging in again" -ForegroundColor White

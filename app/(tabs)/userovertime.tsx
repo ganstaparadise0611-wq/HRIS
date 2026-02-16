@@ -3,9 +3,9 @@ import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { Alert, Modal, Platform, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 // @ts-ignore - DateTimePicker types may not be available
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from './ThemeContext';
 
 // Supabase configuration
@@ -47,13 +47,20 @@ export default function UserOvertime() {
     path: string,
     init: RequestInit
   ): Promise<Response> => {
+    // Add ngrok header to the init options
+    const headers = {
+      ...init.headers,
+      'ngrok-skip-browser-warning': 'true',
+    };
+    const modifiedInit = { ...init, headers };
+    
     const url1 = buildPhpUrl(path, { usePublic: false });
-    const res1 = await fetch(url1, init);
+    const res1 = await fetch(url1, modifiedInit);
     if (res1.status !== 404) return res1;
 
     const url2 = buildPhpUrl(path, { usePublic: true });
     console.log('[Overtime] fetch fallback: 404 from', url1, '→ trying', url2);
-    return await fetch(url2, init);
+    return await fetch(url2, modifiedInit);
   };
 
   // Initialize start and end times to reasonable defaults

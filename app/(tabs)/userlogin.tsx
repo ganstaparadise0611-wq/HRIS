@@ -90,6 +90,7 @@ export default function UserLogin() {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            'ngrok-skip-browser-warning': 'true',
           },
           body: JSON.stringify({ test: true }), // Minimal test payload
           signal: controller.signal,
@@ -97,9 +98,9 @@ export default function UserLogin() {
         
         clearTimeout(timeoutId);
         
-        // Only consider 2xx status codes as success (200-299)
+        // Accept 2xx (success) or 400 (bad request - means server is working but rejected test data)
         // 404 means file not found, which is not a working URL
-        if (response.status >= 200 && response.status < 300) {
+        if ((response.status >= 200 && response.status < 300) || response.status === 400) {
           console.log('[Connection Test] ✅ Server reachable at:', url, 'Status:', response.status);
           return { success: true, workingUrl: url };
         } else if (response.status === 404) {
@@ -143,6 +144,7 @@ export default function UserLogin() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
         },
         body: JSON.stringify({
           username: username,
@@ -152,7 +154,18 @@ export default function UserLogin() {
 
       console.log('[Login] Response received, status:', response.status);
 
-      const result = await response.json();
+      // Get response text first to handle non-JSON responses
+      const responseText = await response.text();
+      console.log('[Login] Response text (first 200 chars):', responseText.substring(0, 200));
+      
+      let result;
+      try {
+        result = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error('[Login] JSON Parse Error:', parseError);
+        console.error('[Login] Full response was:', responseText);
+        throw new Error(`Server returned invalid response (not JSON).\n\nResponse preview: ${responseText.substring(0, 100)}\n\nThis usually means:\n1. Using ngrok free tier (shows warning page)\n2. PHP backend error\n3. Server returned HTML instead of JSON`);
+      }
       
       console.log('[Login] Response parsed:', result);
 
@@ -263,6 +276,7 @@ export default function UserLogin() {
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
         },
         body: JSON.stringify({
           username,

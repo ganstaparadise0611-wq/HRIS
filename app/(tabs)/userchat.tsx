@@ -115,7 +115,9 @@ export default function UserChat() {
     
     try {
       setLoadingChats(true);
-      const response = await fetch(`${PHP_BACKEND_URL}/get-conversations.php?user_id=${currentUserId}`);
+      const response = await fetch(`${PHP_BACKEND_URL}/get-conversations.php?user_id=${currentUserId}`, {
+        headers: { 'ngrok-skip-browser-warning': 'true' }
+      });
       const result = await response.json();
       
       if (result.ok) {
@@ -168,7 +170,9 @@ export default function UserChat() {
   const loadMessages = async (conversationId: string) => {
     try {
       setLoadingMessages(true);
-      const response = await fetch(`${PHP_BACKEND_URL}/get-messages.php?conversation_id=${conversationId}&limit=50`);
+      const response = await fetch(`${PHP_BACKEND_URL}/get-messages.php?conversation_id=${conversationId}&limit=50`, {
+        headers: { 'ngrok-skip-browser-warning': 'true' }
+      });
       const result = await response.json();
       
       if (result.ok) {
@@ -223,6 +227,7 @@ export default function UserChat() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
         },
         body: JSON.stringify({
           conversation_id: selectedChat.id,
@@ -358,6 +363,7 @@ export default function UserChat() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
         },
         body: JSON.stringify({
           creator_id: currentUserId,
@@ -464,6 +470,7 @@ export default function UserChat() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
         },
         body: JSON.stringify({
           conversation_id: selectedChat.id,

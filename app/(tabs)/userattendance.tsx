@@ -3,13 +3,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Dimensions, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Animated, Dimensions, Modal, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { PHP_BACKEND_URL } from '../../constants/backend-config';
 import { useTheme } from './ThemeContext'; // <--- IMPORT HOOK
 
 const { width } = Dimensions.get('window');
-// Backend configuration - Update this to your PHP backend URL
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.15.20:8000';
 
 export default function UserAttendance() {
   const router = useRouter();
@@ -23,6 +22,14 @@ export default function UserAttendance() {
   const [clockInTime, setClockInTime] = useState("");
   const [isVerifying, setIsVerifying] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  
+  // Modal states
+  const [showResultModal, setShowResultModal] = useState(false);
+  const [modalType, setModalType] = useState<'success' | 'error' | 'info'>('success');
+  const [modalTitle, setModalTitle] = useState("");
+  const [modalMessage, setModalMessage] = useState("");
+  const [modalHint, setModalHint] = useState("");
+  const scaleAnim = useRef(new Animated.Value(0)).current;
 
   // DYNAMIC STYLES
   const dyn = {
@@ -58,7 +65,7 @@ export default function UserAttendance() {
   const formattedDate = currentTime.toDateString();
 
   const verifyFace = async (photoUri: string) => {
-    if (!API_URL) throw new Error('Missing EXPO_PUBLIC_API_URL');
+    if (!PHP_BACKEND_URL) throw new Error('Missing backend URL');
     
     // Get logged-in user ID from AsyncStorage for fallback matching
     let userId = null;
@@ -84,10 +91,13 @@ export default function UserAttendance() {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 seconds timeout (increased for face comparison)
 
-      const response = await fetch(`${API_URL}/verify.php`, {
+      const response = await fetch(`${PHP_BACKEND_URL}/verify.php`, {
         method: 'POST',
         body: form,
-        headers: { Accept: 'application/json' },
+        headers: { 
+          Accept: 'application/json',
+          'ngrok-skip-browser-warning': 'true',
+        },
         signal: controller.signal,
       });
 
@@ -95,8 +105,6 @@ export default function UserAttendance() {
 
       // Get response text first to handle both JSON and non-JSON responses
       const responseText = await response.text();
-      console.log('[Verify] Response status:', response.status);
-      console.log('[Verify] Response text (first 500 chars):', responseText.substring(0, 500));
       
       let json: any = {};
       try {
@@ -107,49 +115,35 @@ export default function UserAttendance() {
         throw new Error(`Server returned invalid response. Status: ${response.status}\n\nResponse: ${responseText.substring(0, 200)}`);
       }
       
+      // Handle 401 (face verification failed) as a validation result, not an error
+      if (response.status === 401 && json.message) {
+        // This is an expected validation failure (wrong face, poor lighting, etc.)
+        // Return the result without throwing an error
+        return {
+          ok: false,
+          verified: false,
+          message: json.message,
+          hint: json.hint,
+          match_score: json.match_score,
+          threshold: json.threshold
+        };
+      }
+      
+      // Handle other error responses
       if (!response.ok || !json.ok) {
-        // Get detailed error message from backend
+        // Unexpected server errors (500, etc.)
         let errorMsg = json.message || 'Verification failed';
-        
-        // Add hint if available
-        if (json.hint) {
-          errorMsg += `\n\n${json.hint}`;
-        }
-        
-        // Add debug info if available
-        if (json.debug_info) {
-          const debug = json.debug_info;
-          errorMsg += `\n\nDebug Info:`;
-          errorMsg += `\n- Accounts checked: ${debug.accounts_checked || 0}`;
-          errorMsg += `\n- Best match score: ${debug.best_match_score || 0}`;
-          errorMsg += `\n- Required threshold: ${debug.required_threshold || 0}`;
-          errorMsg += `\n- Luxand API: ${debug.luxand_api_configured ? 'Yes' : 'No'}`;
-          errorMsg += `\n- Method: ${debug.comparison_method || 'unknown'}`;
-          if (debug.luxand_error) {
-            errorMsg += `\n- Luxand Error: ${debug.luxand_error}`;
-          }
-        }
-        
-        // Add match score if available
-        if (json.match_score !== undefined) {
-          errorMsg += `\n\nMatch Score: ${json.match_score} (Threshold: ${json.threshold || 0.65})`;
-        }
-        
-        // Add best match username if available
-        if (json.best_match_username) {
-          errorMsg += `\n- Best match: ${json.best_match_username}`;
-        }
-        
         throw new Error(errorMsg);
       }
+      
       return json;
     } catch (error: any) {
       // Better error handling for network issues
       if (error.name === 'AbortError' || error.message?.includes('timeout')) {
-        throw new Error(`Request timed out. The server might be slow or unreachable.\n\nCheck:\n1. PHP server is running at ${API_URL}\n2. Your device is on the same WiFi\n3. Try again in a moment`);
+        throw new Error(`Request timed out. The server might be slow or unreachable.\n\nCheck:\n1. PHP server is running at ${PHP_BACKEND_URL}\n2. Your device is on the same WiFi\n3. Try again in a moment`);
       }
       if (error.message?.includes('Network request failed') || error.message?.includes('Failed to fetch')) {
-        throw new Error(`Cannot connect to server at ${API_URL}\n\nMake sure:\n1. PHP server is running\n2. Your device is on the same WiFi\n3. Firewall allows port 8000`);
+        throw new Error(`Cannot connect to server at ${PHP_BACKEND_URL}\n\nMake sure:\n1. PHP server is running\n2. Your device is on the same WiFi\n3. Firewall allows port 8000`);
       }
       throw error;
     }
@@ -185,17 +179,58 @@ export default function UserAttendance() {
     setIsVerifying(true);
     try {
         const result = await runVerification();
-        setClockInTime(formattedTime);
-        setIsClockedIn(true);
-        await AsyncStorage.setItem('userClockInTime', formattedTime);
-        Alert.alert("Verified", result?.message || "Face match success. You are clocked in.");
+        
+        // Check if verification was successful
+        if (result?.ok === true) {
+          // Success - face recognized
+          setClockInTime(formattedTime);
+          setIsClockedIn(true);
+          await AsyncStorage.setItem('userClockInTime', formattedTime);
+          showModal('success', '✅ Face Verified!', result?.message || "Face match success. You are clocked in.", '');
+        } else if (result?.verified === false) {
+          // Validation failed (wrong face, poor lighting, etc.) - This is expected, not an error
+          const message = result?.message || "Face verification failed";
+          const hint = result?.hint || "Please try again";
+          showModal('error', '❌ Verification Failed', message, hint);
+        } else {
+          // Unexpected response format
+          showModal('error', 'Verification Failed', 'Please try again.', '');
+        }
     } catch (e: any) {
+        // Only log actual errors (network issues, server errors, etc.)
         console.error('Verification error:', e);
         const errorMessage = e?.message || "Please try again.";
-        Alert.alert("Verification failed", errorMessage);
+        showModal('error', 'Connection Error', errorMessage, 'Check your internet connection');
     } finally {
         setIsVerifying(false);
     }
+  };
+
+  const showModal = (type: 'success' | 'error' | 'info', title: string, message: string, hint: string) => {
+    setModalType(type);
+    setModalTitle(title);
+    setModalMessage(message);
+    setModalHint(hint);
+    setShowResultModal(true);
+    
+    // Animate modal entrance
+    Animated.spring(scaleAnim, {
+      toValue: 1,
+      friction: 5,
+      tension: 100,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const closeModal = () => {
+    Animated.timing(scaleAnim, {
+      toValue: 0,
+      duration: 200,
+      useNativeDriver: true,
+    }).start(() => {
+      setShowResultModal(false);
+      scaleAnim.setValue(0);
+    });
   };
 
   if (isLoading || !permission) return <View style={[styles.loadingContainer, dyn.bg]}><ActivityIndicator size="large" color="#F27121" /></View>;
@@ -261,6 +296,66 @@ export default function UserAttendance() {
             )}
         </TouchableOpacity>
       </View>
+
+      {/* CUSTOM RESULT MODAL */}
+      <Modal
+        visible={showResultModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={closeModal}
+      >
+        <View style={styles.modalOverlay}>
+          <Animated.View style={[
+            styles.modalContainer,
+            { 
+              transform: [{ scale: scaleAnim }],
+              backgroundColor: colors.card
+            }
+          ]}>
+            {/* Icon */}
+            <View style={[
+              styles.modalIconContainer,
+              { backgroundColor: modalType === 'success' ? '#d4edda' : '#f8d7da' }
+            ]}>
+              {modalType === 'success' ? (
+                <Ionicons name="checkmark-circle" size={80} color="#28a745" />
+              ) : (
+                <MaterialCommunityIcons name="face-recognition" size={80} color="#dc3545" />
+              )}
+            </View>
+
+            {/* Title */}
+            <Text style={[styles.modalTitle, { color: colors.text }]}>
+              {modalTitle}
+            </Text>
+
+            {/* Message */}
+            <Text style={[styles.modalMessage, { color: colors.subText }]}>
+              {modalMessage}
+            </Text>
+
+            {/* Hint */}
+            {modalHint ? (
+              <View style={styles.modalHintContainer}>
+                <Ionicons name="information-circle" size={20} color="#17a2b8" />
+                <Text style={styles.modalHint}>{modalHint}</Text>
+              </View>
+            ) : null}
+
+            {/* Action Button */}
+            <TouchableOpacity
+              style={[styles.modalButton, { 
+                backgroundColor: modalType === 'success' ? '#28a745' : '#F27121'
+              }]}
+              onPress={closeModal}
+            >
+              <Text style={styles.modalButtonText}>
+                {modalType === 'success' ? 'Great!' : 'Try Again'}
+              </Text>
+            </TouchableOpacity>
+          </Animated.View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -283,5 +378,74 @@ const styles = StyleSheet.create({
   footer: { padding: 30, borderTopLeftRadius: 30, borderTopRightRadius: 30, elevation: 10, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 5 },
   footerTime: { fontSize: 40, fontWeight: 'bold' },
   bigButton: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', padding: 20, borderRadius: 15 },
-  buttonText: { color: 'white', fontSize: 18, fontWeight: 'bold' }
+  buttonText: { color: 'white', fontSize: 18, fontWeight: 'bold' },
+  
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContainer: {
+    width: '90%',
+    maxWidth: 400,
+    borderRadius: 25,
+    padding: 30,
+    alignItems: 'center',
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+  },
+  modalIconContainer: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  modalTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 15,
+    textAlign: 'center',
+  },
+  modalMessage: {
+    fontSize: 16,
+    textAlign: 'center',
+    marginBottom: 10,
+    lineHeight: 24,
+  },
+  modalHintContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#d1ecf1',
+    padding: 12,
+    borderRadius: 10,
+    marginTop: 10,
+    marginBottom: 20,
+  },
+  modalHint: {
+    fontSize: 14,
+    color: '#0c5460',
+    marginLeft: 8,
+    flex: 1,
+  },
+  modalButton: {
+    paddingVertical: 15,
+    paddingHorizontal: 40,
+    borderRadius: 12,
+    marginTop: 10,
+    minWidth: 150,
+    alignItems: 'center',
+  },
+  modalButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
 });

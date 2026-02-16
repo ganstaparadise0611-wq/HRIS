@@ -86,7 +86,6 @@ function luxand_recognize_face(string $imageBase64): ?array
     $response = curl_exec($ch);
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     $error = curl_error($ch);
-    curl_close($ch);
     
     if ($error) {
         $GLOBALS['luxand_last_error'] = 'CURL Error: ' . $error;
@@ -114,7 +113,6 @@ function luxand_recognize_face(string $imageBase64): ?array
         $response = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $error = curl_error($ch);
-        curl_close($ch);
         
         if ($error) {
             $GLOBALS['luxand_last_error'] = 'CURL Error: ' . $error;
@@ -147,7 +145,6 @@ function luxand_recognize_face(string $imageBase64): ?array
             ]);
             $response2 = curl_exec($ch2);
             $httpCode2 = curl_getinfo($ch2, CURLINFO_HTTP_CODE);
-            curl_close($ch2);
             
             if ($httpCode2 === 200) {
                 error_log("Luxand API: Alternative endpoint /search worked!");
@@ -260,7 +257,6 @@ function luxand_add_person(string $imageBase64, string $personName): ?string
     $response = curl_exec($ch);
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     $error = curl_error($ch);
-    curl_close($ch);
     
     if ($error) {
         $GLOBALS['luxand_last_error'] = 'CURL Error: ' . $error;
@@ -340,7 +336,6 @@ function luxand_compare_faces_direct(string $image1Base64, string $image2Base64)
     // Clean up temp files
     unlink($tmpFile1);
     unlink($tmpFile2);
-    curl_close($ch);
     
     if ($error) {
         $GLOBALS['luxand_last_error'] = 'CURL Error: ' . $error;
