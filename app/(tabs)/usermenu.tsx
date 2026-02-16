@@ -3,8 +3,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useState } from 'react';
-import { Alert, Modal, ScrollView, StatusBar, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Modal, ScrollView, StatusBar, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import CustomAlert from '../../components/CustomAlert';
+import { useCustomAlert } from '../../hooks/useCustomAlert';
 import { useTheme } from './ThemeContext'; // <--- IMPORT HOOK
 
 const SUPABASE_URL = 'https://cgyqweheceduyrpxqvwd.supabase.co';
@@ -14,6 +16,7 @@ const PHP_BACKEND_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.15.20
 export default function UserMenu() {
   const router = useRouter();
   const { theme, toggleTheme, colors } = useTheme(); // <--- GET THEME DATA
+  const { visible, config, showAlert, hideAlert } = useCustomAlert();
   const isDark = theme === 'dark';
   const [userName, setUserName] = useState<string>('User');
   const [userRole, setUserRole] = useState<string>('Employee');
@@ -111,10 +114,16 @@ export default function UserMenu() {
   };
 
   const handleLogout = () => {
-    Alert.alert("Logout", "Are you sure you want to log out?", [
-      { text: "Cancel", style: "cancel" },
-      { text: "Logout", style: "destructive", onPress: () => router.push('/userlogin') }
-    ]);
+    showAlert({
+      type: 'warning',
+      title: 'Logout',
+      message: 'Are you sure you want to log out?',
+      buttonText: 'Logout',
+      onClose: () => {
+        router.push('/userlogin');
+        hideAlert();
+      }
+    });
   };
 
   const handleSecurityPress = () => {
@@ -127,22 +136,22 @@ export default function UserMenu() {
   const handleChangePassword = async () => {
     // Validation
     if (!oldPassword || !newPassword || !confirmPassword) {
-      Alert.alert('Missing Information', 'Please fill in all password fields.');
+      showAlert({ type: 'error', title: 'Missing Information', message: 'Please fill in all password fields.' });
       return;
     }
 
     if (newPassword.length < 6) {
-      Alert.alert('Invalid Password', 'New password must be at least 6 characters long.');
+      showAlert({ type: 'error', title: 'Invalid Password', message: 'New password must be at least 6 characters long.' });
       return;
     }
 
     if (newPassword !== confirmPassword) {
-      Alert.alert('Password Mismatch', 'New password and confirm password do not match.');
+      showAlert({ type: 'error', title: 'Password Mismatch', message: 'New password and confirm password do not match.' });
       return;
     }
 
     if (oldPassword === newPassword) {
-      Alert.alert('Invalid Password', 'New password must be different from current password.');
+      showAlert({ type: 'error', title: 'Invalid Password', message: 'New password must be different from current password.' });
       return;
     }
 
@@ -151,7 +160,7 @@ export default function UserMenu() {
       const userId = await AsyncStorage.getItem('userId');
       
       if (!userId) {
-        Alert.alert('Error', 'User session not found. Please log in again.');
+        showAlert({ type: 'error', title: 'Error', message: 'User session not found. Please log in again.' });
         return;
       }
 
@@ -191,17 +200,19 @@ export default function UserMenu() {
       }
 
       // Success
-      Alert.alert('Success', 'Password changed successfully!', [
-        {
-          text: 'OK',
-          onPress: () => {
-            setShowPasswordModal(false);
-            setOldPassword('');
-            setNewPassword('');
-            setConfirmPassword('');
-          },
-        },
-      ]);
+      showAlert({
+        type: 'success',
+        title: 'Success',
+        message: 'Password changed successfully!',
+        buttonText: 'OK',
+        onClose: () => {
+          setShowPasswordModal(false);
+          setOldPassword('');
+          setNewPassword('');
+          setConfirmPassword('');
+          hideAlert();
+        }
+      });
     } catch (error: any) {
       console.error('[Change Password] Error:', error);
       
@@ -215,7 +226,7 @@ export default function UserMenu() {
         errorMessage = error.message;
       }
       
-      Alert.alert('Change Password Error', errorMessage);
+      showAlert({ type: 'error', title: 'Change Password Error', message: errorMessage });
     } finally {
       setChangingPassword(false);
     }
@@ -410,6 +421,18 @@ export default function UserMenu() {
           </View>
         </View>
       </Modal>
+
+      <CustomAlert
+        visible={visible}
+        type={config.type}
+        title={config.title}
+        message={config.message}
+        hint={config.hint}
+        buttonText={config.buttonText}
+        onClose={hideAlert}
+        backgroundColor={colors.card}
+        textColor={colors.text}
+      />
     </SafeAreaView>
   );
 }

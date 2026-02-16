@@ -5,6 +5,8 @@ import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { Alert, Modal, Platform, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import CustomAlert from '../../components/CustomAlert';
+import { useCustomAlert } from '../../hooks/useCustomAlert';
 import { useTheme } from './ThemeContext';
 
 const SUPABASE_URL = 'https://cgyqweheceduyrpxqvwd.supabase.co';
@@ -23,6 +25,7 @@ const ON_DUTY_TYPES = [
 export default function UserOnDuty() {
   const router = useRouter();
   const { colors, theme } = useTheme();
+  const { visible, config, showAlert, hideAlert} = useCustomAlert();
   const isDark = theme === 'dark';
   
   const [step, setStep] = useState(1); // 1 = Basic Info, 2 = Details
@@ -85,11 +88,11 @@ export default function UserOnDuty() {
   const handleUploadAttachment = async () => {
     // TODO: Implement file picker when expo-document-picker is installed
     // For now, show a placeholder
-    Alert.alert(
-      'Attachment Upload',
-      'File upload feature will be available soon. You can proceed without attachment.',
-      [{ text: 'OK' }]
-    );
+    showAlert({
+      type: 'info',
+      title: 'Attachment Upload',
+      message: 'File upload feature will be available soon. You can proceed without attachment.'
+    });
     // Placeholder - set a dummy attachment name
     setAttachmentName('document.pdf');
     setAttachment('placeholder');
@@ -105,11 +108,11 @@ export default function UserOnDuty() {
 
   const handleNext = () => {
     if (!onDutyType) {
-      Alert.alert('Missing Information', 'Please select On Duty Type');
+      showAlert({ type: 'error', title: 'Missing Information', message: 'Please select On Duty Type' });
       return;
     }
     if (!remark.trim()) {
-      Alert.alert('Missing Information', 'Please fill in the Remark field');
+      showAlert({ type: 'error', title: 'Missing Information', message: 'Please fill in the Remark field' });
       return;
     }
     setStep(2);
@@ -117,7 +120,7 @@ export default function UserOnDuty() {
 
   const handleSubmit = async () => {
     if (!destination.trim()) {
-      Alert.alert('Missing Information', 'Please enter destination');
+      showAlert({ type: 'error', title: 'Missing Information', message: 'Please enter destination' });
       return;
     }
 
@@ -126,7 +129,7 @@ export default function UserOnDuty() {
       const userId = await AsyncStorage.getItem('userId');
       
       if (!userId) {
-        Alert.alert('Error', 'User not logged in');
+        showAlert({ type: 'error', title: 'Error', message: 'User not logged in' });
         return;
       }
 
@@ -177,23 +180,25 @@ export default function UserOnDuty() {
         throw new Error(errorMsg);
       }
 
-      Alert.alert('Success', 'On Duty request submitted successfully!', [
-        {
-          text: 'OK',
-          onPress: () => {
-            // Reset form
-            setStep(1);
-            setOnDutyType('');
-            setRemark('');
-            setDestination('');
-            setAttachment(null);
-            setAttachmentName('');
-            setUsdAllowance('');
-            setIdrAllowance('');
-            router.back();
-          },
-        },
-      ]);
+      showAlert({
+        type: 'success',
+        title: 'Success',
+        message: 'On Duty request submitted successfully!',
+        buttonText: 'OK',
+        onClose: () => {
+          // Reset form
+          setStep(1);
+          setOnDutyType('');
+          setRemark('');
+          setDestination('');
+          setAttachment(null);
+          setAttachmentName('');
+          setUsdAllowance('');
+          setIdrAllowance('');
+          router.back();
+          hideAlert();
+        }
+      });
     } catch (error: any) {
       console.error('Error submitting on duty request:', error);
       
@@ -215,7 +220,7 @@ export default function UserOnDuty() {
 
   const handleSaveDraft = async () => {
     if (!destination.trim()) {
-      Alert.alert('Missing Information', 'Please enter destination');
+      showAlert({ type: 'error', title: 'Missing Information', message: 'Please enter destination' });
       return;
     }
 
@@ -224,7 +229,7 @@ export default function UserOnDuty() {
       const userId = await AsyncStorage.getItem('userId');
       
       if (!userId) {
-        Alert.alert('Error', 'User not logged in');
+        showAlert({ type: 'error', title: 'Error', message: 'User not logged in' });
         return;
       }
 
@@ -275,14 +280,16 @@ export default function UserOnDuty() {
         throw new Error(errorMsg);
       }
 
-      Alert.alert('Success', 'On Duty request saved as draft!', [
-        {
-          text: 'OK',
-          onPress: () => {
-            router.back();
-          },
-        },
-      ]);
+      showAlert({
+        type: 'success',
+        title: 'Success',
+        message: 'On Duty request saved as draft!',
+        buttonText: 'OK',
+        onClose: () => {
+          router.back();
+          hideAlert();
+        }
+      });
     } catch (error: any) {
       console.error('Error saving draft:', error);
       
@@ -296,7 +303,7 @@ export default function UserOnDuty() {
         errorMessage = error.message;
       }
       
-      Alert.alert('Error', errorMessage);
+      showAlert({ type: 'error', title: 'Error', message: errorMessage });
     } finally {
       setSubmitting(false);
     }
@@ -673,6 +680,18 @@ export default function UserOnDuty() {
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
+
+      <CustomAlert
+        visible={visible}
+        type={config.type}
+        title={config.title}
+        message={config.message}
+        hint={config.hint}
+        buttonText={config.buttonText}
+        onClose={hideAlert}
+        backgroundColor={colors.card}
+        textColor={colors.text}
+      />
     </SafeAreaView>
   );
 }

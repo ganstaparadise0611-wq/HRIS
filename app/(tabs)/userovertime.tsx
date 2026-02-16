@@ -1,11 +1,13 @@
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { Alert, Modal, Platform, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Modal, Platform, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 // @ts-ignore - DateTimePicker types may not be available
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import CustomAlert from '../../components/CustomAlert';
+import { useCustomAlert } from '../../hooks/useCustomAlert';
 import { useTheme } from './ThemeContext';
 
 // Supabase configuration
@@ -20,6 +22,7 @@ const API_URL = 'http://192.168.15.14:8000';
 export default function UserOvertime() {
   const router = useRouter();
   const { colors, theme } = useTheme();
+  const { visible, config, showAlert, hideAlert } = useCustomAlert();
   const isDark = theme === 'dark';
   
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
@@ -116,7 +119,7 @@ export default function UserOvertime() {
     }
     if (!effectiveUsername) {
       console.log('[Overtime] ensureEmpId: missing username in state and storage');
-      Alert.alert('Not logged in', 'Username not found. Please log in again.');
+      showAlert({ type: 'error', title: 'Not logged in', message: 'Username not found. Please log in again.' });
       return null;
     }
 
@@ -220,7 +223,7 @@ export default function UserOvertime() {
           return mappedEmpId;
         }
         
-        Alert.alert('Employee ID Not Found', 'Unable to find your employee ID. Please contact HR.');
+        showAlert({ type: 'error', title: 'Employee ID Not Found', message: 'Unable to find your employee ID. Please contact HR.' });
         return null;
       }
 
@@ -231,7 +234,7 @@ export default function UserOvertime() {
       return resolvedEmpId as number;
     } catch (error: any) {
       console.error('ensureEmpId error', error);
-      Alert.alert('Error', error.message || 'Unable to load employee information.');
+      showAlert({ type: 'error', title: 'Error', message: error.message || 'Unable to load employee information.' });
       return null;
     }
   };
@@ -280,7 +283,7 @@ export default function UserOvertime() {
   // Submit overtime request
   const submitOvertime = async () => {
     if (!reason.trim()) {
-      Alert.alert('Missing information', 'Please enter a reason for your overtime.');
+      showAlert({ type: 'error', title: 'Missing information', message: 'Please enter a reason for your overtime.' });
       return;
     }
 
@@ -327,12 +330,12 @@ export default function UserOvertime() {
         throw new Error(result.message || 'Failed to submit overtime request.');
       }
 
-      Alert.alert('Success', 'Overtime request submitted successfully!');
+      showAlert({ type: 'success', title: 'Success', message: 'Overtime request submitted successfully!' });
       setReason('');
       await loadHistory();
     } catch (error: any) {
       console.error('submitOvertime error', error);
-      Alert.alert('Error', error.message || 'Unable to submit overtime request.');
+      showAlert({ type: 'error', title: 'Error', message: error.message || 'Unable to submit overtime request.' });
     } finally {
       setSubmitting(false);
     }
@@ -379,7 +382,7 @@ export default function UserOvertime() {
       console.error('loadHistory error', error);
       // Don't show alert on initial load failure
       if (history.length > 0) {
-        Alert.alert('Error', error.message || 'Unable to load overtime history.');
+        showAlert({ type: 'error', title: 'Error', message: error.message || 'Unable to load overtime history.' });
       }
     } finally {
       setLoadingHistory(false);
@@ -672,6 +675,18 @@ export default function UserOvertime() {
         )}
 
       </ScrollView>
+
+      <CustomAlert
+        visible={visible}
+        type={config.type}
+        title={config.title}
+        message={config.message}
+        hint={config.hint}
+        buttonText={config.buttonText}
+        onClose={hideAlert}
+        backgroundColor={colors.card}
+        textColor={colors.text}
+      />
     </SafeAreaView>
   );
 }

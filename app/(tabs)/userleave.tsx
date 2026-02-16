@@ -1,12 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
-import { Alert, Animated, Modal, Platform, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Animated, Modal, Platform, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 // @ts-ignore - DateTimePicker types may not be available
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { GestureHandlerRootView, Swipeable } from 'react-native-gesture-handler';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import CustomAlert from '../../components/CustomAlert';
+import { useCustomAlert } from '../../hooks/useCustomAlert';
 import { useTheme } from './ThemeContext';
 
 // Supabase configuration (same project as login)
@@ -19,6 +21,7 @@ const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.15.132:8000';
 export default function UserLeave() {
   const router = useRouter();
   const { colors, theme } = useTheme();
+  const { visible, config, showAlert, hideAlert } = useCustomAlert();
   const isDark = theme === 'dark';
   const [activeTab, setActiveTab] = useState('apply');
   const [leaveType, setLeaveType] = useState('Sick Leave');
@@ -89,7 +92,7 @@ export default function UserLeave() {
   const ensureEmpId = async (): Promise<number | null> => {
     if (empId !== null) return empId;
     if (!username) {
-      Alert.alert('Not logged in', 'Username not found. Please log in again.');
+      showAlert({ type: 'error', title: 'Not logged in', message: 'Username not found. Please log in again.' });
       return null;
     }
 
@@ -301,13 +304,12 @@ export default function UserLeave() {
         }
         
         // If no mapping exists, show error
-        Alert.alert(
-          'Employee ID Not Found', 
-          `Unable to find your employee ID automatically.\n\n` +
-          `Your log_id: ${logIdValue}\n` +
-          `Please contact HR to get your employee ID, or add a mapping in the code.`,
-          [{ text: 'OK' }]
-        );
+        showAlert({
+          type: 'warning',
+          title: 'Employee ID Not Found',
+          message: `Unable to find your employee ID automatically.\n\nYour log_id: ${logIdValue}\nPlease contact HR to get your employee ID, or add a mapping in the code.`,
+          buttonText: 'OK'
+        });
         return null;
       }
 
@@ -329,7 +331,7 @@ export default function UserLeave() {
       console.error('ensureEmpId error', error);
       // Don't show alert if we already showed one
       if (!error.message?.includes('Employee Not Found')) {
-        Alert.alert('Error', error.message || 'Unable to load employee information.');
+        showAlert({ type: 'error', title: 'Error', message: error.message || 'Unable to load employee information.' });
       }
       return null;
     }
@@ -337,22 +339,22 @@ export default function UserLeave() {
 
   const submitLeave = async () => {
     if (!reason.trim()) {
-      Alert.alert('Missing information', 'Please enter a reason for your leave.');
+      showAlert({ type: 'error', title: 'Missing information', message: 'Please enter a reason for your leave.' });
       return;
     }
 
     if (!startDate) {
-      Alert.alert('Missing information', 'Please select a start date.');
+      showAlert({ type: 'error', title: 'Missing information', message: 'Please select a start date.' });
       return;
     }
 
     if (!endDate) {
-      Alert.alert('Missing information', 'Please select an end date.');
+      showAlert({ type: 'error', title: 'Missing information', message: 'Please select an end date.' });
       return;
     }
 
     if (endDate < startDate) {
-      Alert.alert('Invalid dates', 'End date cannot be before start date.');
+      showAlert({ type: 'error', title: 'Invalid dates', message: 'End date cannot be before start date.' });
       return;
     }
 
@@ -420,7 +422,7 @@ export default function UserLeave() {
         });
       }
 
-      Alert.alert('Success', editingLeave ? 'Request Updated' : 'Request Sent');
+      showAlert({ type: 'success', title: 'Success', message: editingLeave ? 'Request Updated' : 'Request Sent' });
       setReason('');
       setStartDate(null);
       setEndDate(null);
@@ -436,19 +438,18 @@ export default function UserLeave() {
       
       // Show detailed error if it's RLS-related
       if (errorMsg.includes('RLS') || errorMsg.includes('row-level security')) {
-        Alert.alert(
-          'RLS Policy Error',
-          errorMsg,
-          [
-            { text: 'Copy SQL', onPress: () => {
-              // The SQL is already in the error message
-              console.log('SQL to run:', errorMsg);
-            }},
-            { text: 'OK' }
-          ]
-        );
+        showAlert({
+          type: 'error',
+          title: 'RLS Policy Error',
+          message: errorMsg,
+          buttonText: 'OK',
+          onClose: () => {
+            // The SQL is already in the error message
+            console.log('SQL to run:', errorMsg);
+          }
+        });
       } else {
-        Alert.alert('Error', errorMsg);
+        showAlert({ type: 'error', title: 'Error', message: errorMsg });
       }
     } finally {
       setSubmitting(false);
@@ -496,7 +497,7 @@ export default function UserLeave() {
         throw new Error(result.message || 'Failed to update leave request.');
       }
 
-      Alert.alert('Success', 'Request Updated');
+      showAlert({ type: 'success', title: 'Success', message: 'Request Updated' });
       setReason('');
       setStartDate(null);
       setEndDate(null);
@@ -505,60 +506,55 @@ export default function UserLeave() {
       await loadHistory();
     } catch (error: any) {
       console.error('updateLeave error', error);
-      Alert.alert('Error', error.message || 'Unable to update leave request.');
+      showAlert({ type: 'error', title: 'Error', message: error.message || 'Unable to update leave request.' });
     } finally {
       setSubmitting(false);
     }
   };
 
   const deleteLeave = async (leaveId: number) => {
-    Alert.alert(
-      'Delete Leave Request',
-      'Are you sure you want to delete this leave request?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              const res = await fetch(`${API_URL}/leave_requests.php`, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'ngrok-skip-browser-warning': 'true',
-                },
-                body: JSON.stringify({
-                  action: 'delete',
-                  leave_id: leaveId,
-                }),
-              });
+    showAlert({
+      type: 'warning',
+      title: 'Delete Leave Request',
+      message: 'Are you sure you want to delete this leave request?',
+      buttonText: 'Delete',
+      onClose: async () => {
+        try {
+          const res = await fetch(`${API_URL}/leave_requests.php`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'ngrok-skip-browser-warning': 'true',
+            },
+            body: JSON.stringify({
+              action: 'delete',
+              leave_id: leaveId,
+            }),
+          });
 
-              if (!res.ok) {
-                const errData = await res.json().catch(() => ({ message: 'Failed to delete leave request.' }));
-                throw new Error(errData.message || 'Failed to delete leave request.');
-              }
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({ message: 'Failed to delete leave request.' }));
+            throw new Error(errData.message || 'Failed to delete leave request.');
+          }
 
-              const result = await res.json();
-              if (!result.ok) {
-                throw new Error(result.message || 'Failed to delete leave request.');
-              }
+          const result = await res.json();
+          if (!result.ok) {
+            throw new Error(result.message || 'Failed to delete leave request.');
+          }
 
-              Alert.alert('Success', 'Leave request deleted');
-              await loadHistory();
-            } catch (error: any) {
-              console.error('deleteLeave error', error);
-              Alert.alert('Error', error.message || 'Unable to delete leave request.');
-            }
-          },
-        },
-      ]
-    );
+          showAlert({ type: 'success', title: 'Success', message: 'Leave request deleted' });
+          await loadHistory();
+        } catch (error: any) {
+          console.error('deleteLeave error', error);
+          showAlert({ type: 'error', title: 'Error', message: error.message || 'Unable to delete leave request.' });
+        }
+      }
+    });
   };
 
   const editLeave = (leave: any) => {
     if (leave.leave_type !== 'Vacation') {
-      Alert.alert('Cannot Edit', 'Only Vacation leave requests can be edited.');
+      showAlert({ type: 'warning', title: 'Cannot Edit', message: 'Only Vacation leave requests can be edited.' });
       return;
     }
 
@@ -606,7 +602,7 @@ export default function UserLeave() {
       setHistory(Array.isArray(result.data) ? result.data : []);
     } catch (error: any) {
       console.error('loadHistory error', error);
-      Alert.alert('Error', error.message || 'Unable to load leave history.');
+      showAlert({ type: 'error', title: 'Error', message: error.message || 'Unable to load leave history.' });
     } finally {
       setLoadingHistory(false);
     }
@@ -665,7 +661,7 @@ export default function UserLeave() {
                             ]}
                             onPress={() => {
                                 if (editingLeave) {
-                                    Alert.alert('Cannot Change', 'Leave type cannot be changed when editing. Only Vacation leave can be edited.');
+                                    showAlert({ type: 'warning', title: 'Cannot Change', message: 'Leave type cannot be changed when editing. Only Vacation leave can be edited.' });
                                     return;
                                 }
                                 dropdownButtonRef.current?.measureInWindow((x, y, width, height) => {
@@ -1034,7 +1030,7 @@ export default function UserLeave() {
                     if (event.type === 'set' && selectedDate) {
                       // Ensure end date is not before start date
                       if (startDate && selectedDate < startDate) {
-                        Alert.alert('Invalid Date', 'End date cannot be before start date.');
+                        showAlert({ type: 'error', title: 'Invalid Date', message: 'End date cannot be before start date.' });
                         return;
                       }
                       setEndDate(selectedDate);
@@ -1064,7 +1060,7 @@ export default function UserLeave() {
                     onPress={() => {
                       // Ensure end date is not before start date
                       if (startDate && tempEndDate < startDate) {
-                        Alert.alert('Invalid Date', 'End date cannot be before start date.');
+                        showAlert({ type: 'error', title: 'Invalid Date', message: 'End date cannot be before start date.' });
                         return;
                       }
                       setEndDate(tempEndDate);
@@ -1080,6 +1076,19 @@ export default function UserLeave() {
         </Modal>
       )}
       </SafeAreaView>
+
+      {/* Custom Alert Modal */}
+      <CustomAlert
+        visible={visible}
+        type={config.type}
+        title={config.title}
+        message={config.message}
+        hint={config.hint}
+        buttonText={config.buttonText}
+        onClose={hideAlert}
+        backgroundColor={colors.card}
+        textColor={colors.text}
+      />
     </GestureHandlerRootView>
   );
 }

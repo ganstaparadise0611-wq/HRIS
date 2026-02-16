@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Animated, Dimensions, Modal, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Animated, Dimensions, Modal, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { PHP_BACKEND_URL } from '../../constants/backend-config';
 import { useTheme } from './ThemeContext'; // <--- IMPORT HOOK
@@ -25,7 +25,7 @@ export default function UserAttendance() {
   
   // Modal states
   const [showResultModal, setShowResultModal] = useState(false);
-  const [modalType, setModalType] = useState<'success' | 'error' | 'info'>('success');
+  const [modalType, setModalType] = useState<'success' | 'error' | 'info' | 'warning'>('success');
   const [modalTitle, setModalTitle] = useState("");
   const [modalMessage, setModalMessage] = useState("");
   const [modalHint, setModalHint] = useState("");
@@ -166,13 +166,13 @@ export default function UserAttendance() {
         setIsClockedIn(false);
         setClockInTime("");
         await AsyncStorage.removeItem('userClockInTime');
-        Alert.alert("Goodbye", "Clocked out successfully.");
-        setTimeout(() => router.back(), 500);
+        showModal('success', '👋 Goodbye', 'Clocked out successfully.', '');
+        setTimeout(() => router.back(), 1500);
         return;
     }
 
     if (!permission?.granted) {
-        Alert.alert("Camera required", "Please allow camera access to verify.");
+        showModal('warning', '📷 Camera Required', 'Please allow camera access to verify your identity.', '');
         return;
     }
 
@@ -206,7 +206,7 @@ export default function UserAttendance() {
     }
   };
 
-  const showModal = (type: 'success' | 'error' | 'info', title: string, message: string, hint: string) => {
+  const showModal = (type: 'success' | 'error' | 'info' | 'warning', title: string, message: string, hint: string) => {
     setModalType(type);
     setModalTitle(title);
     setModalMessage(message);
@@ -315,10 +315,14 @@ export default function UserAttendance() {
             {/* Icon */}
             <View style={[
               styles.modalIconContainer,
-              { backgroundColor: modalType === 'success' ? '#d4edda' : '#f8d7da' }
+              { backgroundColor: modalType === 'success' ? '#d4edda' : modalType === 'warning' ? '#fff3cd' : modalType === 'info' ? '#d1ecf1' : '#f8d7da' }
             ]}>
               {modalType === 'success' ? (
                 <Ionicons name="checkmark-circle" size={80} color="#28a745" />
+              ) : modalType === 'warning' ? (
+                <Ionicons name="warning" size={80} color="#ffc107" />
+              ) : modalType === 'info' ? (
+                <Ionicons name="information-circle" size={80} color="#17a2b8" />
               ) : (
                 <MaterialCommunityIcons name="face-recognition" size={80} color="#dc3545" />
               )}
@@ -345,12 +349,12 @@ export default function UserAttendance() {
             {/* Action Button */}
             <TouchableOpacity
               style={[styles.modalButton, { 
-                backgroundColor: modalType === 'success' ? '#28a745' : '#F27121'
+                backgroundColor: modalType === 'success' ? '#28a745' : modalType === 'warning' ? '#ffc107' : modalType === 'info' ? '#17a2b8' : '#dc3545'
               }]}
               onPress={closeModal}
             >
               <Text style={styles.modalButtonText}>
-                {modalType === 'success' ? 'Great!' : 'Try Again'}
+                {modalType === 'success' ? 'Great!' : modalType === 'warning' ? 'Got it' : modalType === 'info' ? 'OK' : 'Try Again'}
               </Text>
             </TouchableOpacity>
           </Animated.View>

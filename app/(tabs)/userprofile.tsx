@@ -5,7 +5,6 @@ import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
-    Alert,
     Image,
     Modal,
     SafeAreaView,
@@ -18,7 +17,9 @@ import {
     View
 } from 'react-native';
 import WheelPicker from 'react-native-wheely';
+import CustomAlert from '../../components/CustomAlert';
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from '../../constants/backend-config';
+import { useCustomAlert } from '../../hooks/useCustomAlert';
 import { useTheme } from './ThemeContext';
 
 interface UserProfile {
@@ -37,6 +38,7 @@ interface UserProfile {
 export default function UserProfile() {
   const router = useRouter();
   const { colors, theme } = useTheme();
+  const { visible, config, showAlert, hideAlert } = useCustomAlert();
   const isDark = theme === 'dark';
 
   const [loading, setLoading] = useState(true);
@@ -107,7 +109,7 @@ export default function UserProfile() {
       
       if (!userId) {
         console.log('[Profile] No userId found in AsyncStorage');
-        Alert.alert('Error', 'User not logged in');
+        showAlert({ type: 'error', title: 'Error', message: 'User not logged in' });
         router.replace('/userlogin');
         return;
       }
@@ -226,21 +228,20 @@ export default function UserProfile() {
       } else {
         console.log('[Profile] No employee found for log_id:', userId);
         // Offer to create employee record
-        Alert.alert(
-          'No Profile Found', 
-          'No employee record exists. Would you like to create one?',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            { 
-              text: 'Create Profile', 
-              onPress: () => createEmployeeRecord(userId)
-            }
-          ]
-        );
+        showAlert({
+          type: 'warning',
+          title: 'No Profile Found',
+          message: 'No employee record exists. Would you like to create one?',
+          buttonText: 'Create Profile',
+          onClose: () => {
+            createEmployeeRecord(userId);
+            hideAlert();
+          }
+        });
       }
     } catch (error: any) {
       console.error('Error loading profile:', error);
-      Alert.alert('Error', 'Failed to load profile data: ' + (error?.message || 'Unknown error'));
+      showAlert({ type: 'error', title: 'Error', message: 'Failed to load profile data: ' + (error?.message || 'Unknown error') });
     } finally {
       setLoading(false);
     }
@@ -320,7 +321,7 @@ export default function UserProfile() {
       // Request permission
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permission Denied', 'We need camera roll permissions to change your profile picture.');
+        showAlert({ type: 'error', title: 'Permission Denied', message: 'We need camera roll permissions to change your profile picture.' });
         return;
       }
 
@@ -345,7 +346,7 @@ export default function UserProfile() {
       }
     } catch (error) {
       console.error('Error picking image:', error);
-      Alert.alert('Error', 'Failed to pick image');
+      showAlert({ type: 'error', title: 'Error', message: 'Failed to pick image' });
     }
   };
 
@@ -383,7 +384,7 @@ export default function UserProfile() {
       }
     } catch (error) {
       console.error('[Profile Picture] Update error:', error);
-      Alert.alert('Error', 'Failed to update profile picture');
+      showAlert({ type: 'error', title: 'Error', message: 'Failed to update profile picture' });
     }
   };
   const createEmployeeRecord = async (logId: string) => {
@@ -420,17 +421,17 @@ export default function UserProfile() {
       console.log('[Profile] Create response:', result);
 
       if (response.ok && result && result.length > 0) {
-        Alert.alert('Success', 'Profile created! You can now edit your information.');
+        showAlert({ type: 'success', title: 'Success', message: 'Profile created! You can now edit your information.' });
         setProfile(result[0]);
         setEditedProfile(result[0]);
         setEditing(true);
       } else {
         const errorMsg = result?.message || result?.hint || 'Failed to create profile';
-        Alert.alert('Error', `Could not create profile: ${errorMsg}\n\nPlease contact your administrator.`);
+        showAlert({ type: 'error', title: 'Error', message: `Could not create profile: ${errorMsg}\n\nPlease contact your administrator.` });
       }
     } catch (error) {
       console.error('Error creating employee:', error);
-      Alert.alert('Error', 'Failed to create profile. Please contact administrator.');
+      showAlert({ type: 'error', title: 'Error', message: 'Failed to create profile. Please contact administrator.' });
     } finally {
       setLoading(false);
     }
@@ -473,7 +474,7 @@ export default function UserProfile() {
       if (response.ok) {
         setProfile(editedProfile);
         setEditing(false);
-        Alert.alert('Success', 'Profile updated successfully');
+        showAlert({ type: 'success', title: 'Success', message: 'Profile updated successfully' });
         // Reload profile picture to confirm
         await loadProfilePicture();
       } else {
@@ -481,7 +482,7 @@ export default function UserProfile() {
       }
     } catch (error) {
       console.error('Error updating profile:', error);
-      Alert.alert('Error', 'Failed to update profile');
+      showAlert({ type: 'error', title: 'Error', message: 'Failed to update profile' });
     } finally {
       setLoading(false);
     }
@@ -849,6 +850,18 @@ export default function UserProfile() {
           </TouchableOpacity>
         )}
       </ScrollView>
+
+      <CustomAlert
+        visible={visible}
+        type={config.type}
+        title={config.title}
+        message={config.message}
+        hint={config.hint}
+        buttonText={config.buttonText}
+        onClose={hideAlert}
+        backgroundColor={colors.card}
+        textColor={colors.text}
+      />
     </SafeAreaView>
   );
 }

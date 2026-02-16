@@ -19,7 +19,9 @@ import {
     View,
 } from 'react-native';
 import WheelPicker from 'react-native-wheely';
+import CustomAlert from '../../components/CustomAlert';
 import { PHP_BACKEND_URL } from '../../constants/backend-config';
+import { useCustomAlert } from '../../hooks/useCustomAlert';
 
 // Supabase configuration (for direct API calls if needed)
 const SUPABASE_URL = 'https://cgyqweheceduyrpxqvwd.supabase.co';
@@ -27,6 +29,7 @@ const SUPABASE_ANON_KEY = 'sb_publishable_MJmY9d0yFuPp6KtQ62stGw_lFHMnNAK';
 
 export default function UserLogin() {
   const router = useRouter();
+  const { visible, config, showAlert, hideAlert } = useCustomAlert();
   const [keepLogged, setKeepLogged] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -123,7 +126,7 @@ export default function UserLogin() {
 
   const handleLogin = async () => {
     if (!username || !password) {
-      Alert.alert('Missing information', 'Please enter both username and password.');
+      showAlert({ type: 'warning', title: 'Missing Information', message: 'Please enter both username and password.' });
       return;
     }
 
@@ -189,9 +192,12 @@ export default function UserLogin() {
       
       console.log('[Login] Stored userId in AsyncStorage:', result.user.log_id.toString());
       
-      Alert.alert('Success', 'Login successful!');
-
-      router.push('/userdashboard');
+      showAlert({ 
+        type: 'success', 
+        title: '✅ Success', 
+        message: 'Login successful!',
+        onClose: () => router.push('/userdashboard')
+      });
     } catch (error: any) {
       console.error('[Login] Full error object:', error);
       console.error('[Login] Error name:', error.name);
@@ -207,7 +213,7 @@ export default function UserLogin() {
         errorMessage = error.message;
       }
       
-      Alert.alert('Login Failed', errorMessage);
+      showAlert({ type: 'error', title: 'Login Failed', message: errorMessage });
     } finally {
       setLoading(false);
     }
@@ -320,13 +326,18 @@ export default function UserLogin() {
 
       console.log('Account created successfully:', result);
 
-      Alert.alert('Success', 'Account created successfully! Your QR code has been generated based on your face data.');
-      
-      // Reset form and switch to login mode
-      setIsSignUp(false);
-      setCapturedImage(null);
-      setCapturedBase64(null);
-      setPassword('');
+      showAlert({ 
+        type: 'success', 
+        title: '✅ Account Created', 
+        message: 'Account created successfully! Your QR code has been generated based on your face data.',
+        onClose: () => {
+          // Reset form and switch to login mode
+          setIsSignUp(false);
+          setCapturedImage(null);
+          setCapturedBase64(null);
+          setPassword('');
+        }
+      });
     } catch (error: any) {
       console.error('Sign up error:', error);
       console.error('Error details:', {
@@ -345,7 +356,7 @@ export default function UserLogin() {
         errorMsg = error.message;
       }
       
-      Alert.alert('Sign Up Error', errorMsg);
+      showAlert({ type: 'error', title: 'Sign Up Error', message: errorMsg });
     } finally {
       setLoading(false);
     }
@@ -368,28 +379,22 @@ export default function UserLogin() {
 
   const requestCameraPermission = async () => {
     // Show validation message before opening camera
-    Alert.alert(
-      'Face Capture Guidelines',
-      '📷 FOR BEST FACE RECOGNITION:\n\n✅ Position face in the center frame\n✅ Remove eyeglasses, masks, or hats\n✅ Ensure good lighting (face should be well-lit)\n✅ Look directly at camera\n✅ Keep face straight (not tilted)\n✅ Maintain neutral expression\n\n⚠️ This photo will be used for clock-in verification, so make sure your face is clearly visible!',
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-        {
-          text: 'Proceed',
-          onPress: async () => {
-            const { status } = await Camera.requestCameraPermissionsAsync();
-            setHasPermission(status === 'granted');
-            if (status === 'granted') {
-              setShowCamera(true);
-            } else {
-              Alert.alert('Permission Denied', 'Camera permission is required for face capture.');
-            }
-          },
-        },
-      ]
-    );
+    showAlert({
+      type: 'info',
+      title: 'Face Capture Guidelines',
+      message: '📷 FOR BEST FACE RECOGNITION:\n\n✅ Position face in the center frame\n✅ Remove eyeglasses, masks, or hats\n✅ Ensure good lighting (face should be well-lit)\n✅ Look directly at camera\n✅ Keep face straight (not tilted)\n✅ Maintain neutral expression',
+      hint: '⚠️ This photo will be used for clock-in verification, so make sure your face is clearly visible!',
+      buttonText: 'Proceed',
+      onClose: async () => {
+        const { status } = await Camera.requestCameraPermissionsAsync();
+        setHasPermission(status === 'granted');
+        if (status === 'granted') {
+          setShowCamera(true);
+        } else {
+          showAlert({ type: 'error', title: 'Permission Denied', message: 'Camera permission is required for face capture.' });
+        }
+      }
+    });
   };
 
   const captureFace = async () => {
@@ -409,14 +414,14 @@ export default function UserLogin() {
         // Debug: Check if base64 was captured
         if (photo.base64) {
           console.log('Base64 captured, length:', photo.base64.length);
-          Alert.alert('Success', 'Face captured successfully! This will be used for clock-in verification.');
+          showAlert({ type: 'success', title: 'Success', message: 'Face captured successfully! This will be used for clock-in verification.' });
         } else {
           console.error('No base64 data in photo');
-          Alert.alert('Warning', 'Face captured but data may be incomplete. Please retake for better recognition.');
+          showAlert({ type: 'warning', title: 'Warning', message: 'Face captured but data may be incomplete. Please retake for better recognition.' });
         }
       } catch (error) {
         console.error('Capture error:', error);
-        Alert.alert('Error', 'Failed to capture image. Please try again.');
+        showAlert({ type: 'error', title: 'Error', message: 'Failed to capture image. Please try again.' });
       }
     }
   };
@@ -896,6 +901,19 @@ export default function UserLogin() {
       <View style={styles.footer}>
         <Text style={styles.footerText}>We Empower Development</Text>
       </View>
+
+      {/* Custom Alert Modal */}
+      <CustomAlert
+        visible={visible}
+        type={config.type}
+        title={config.title}
+        message={config.message}
+        hint={config.hint}
+        buttonText={config.buttonText}
+        onClose={hideAlert}
+        backgroundColor="#1c1c1e"
+        textColor="#ffffff"
+      />
     </SafeAreaView>
   );
 }

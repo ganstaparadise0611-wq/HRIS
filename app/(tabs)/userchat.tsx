@@ -3,22 +3,23 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    FlatList,
-    KeyboardAvoidingView,
-    Modal,
-    Platform,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View
+  ActivityIndicator,
+  FlatList,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import CustomAlert from '../../components/CustomAlert';
 import { PHP_BACKEND_URL } from '../../constants/backend-config';
+import { useCustomAlert } from '../../hooks/useCustomAlert';
 import { useTheme } from './ThemeContext';
 
 type ChatData = {
@@ -51,6 +52,7 @@ type Account = {
 export default function UserChat() {
   const router = useRouter();
   const { colors, theme } = useTheme();
+  const { visible, config, showAlert, hideAlert } = useCustomAlert();
   const isDark = theme === 'dark';
   const [searchText, setSearchText] = useState('');
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
@@ -86,8 +88,8 @@ export default function UserChat() {
   const [showChatInfoModal, setShowChatInfoModal] = useState(false);
   
   const flatListRef = useRef<FlatList>(null);
-  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const memberSearchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const searchTimeoutRef = useRef<any>(null);
+  const memberSearchTimeoutRef = useRef<any>(null);
 
   useEffect(() => {
     loadUserData();
@@ -335,19 +337,19 @@ export default function UserChat() {
     if (newChatType === 'dm') {
       // For DM, must select an account
       if (!selectedAccount) {
-        Alert.alert('Error', 'Please select a user from the suggestions');
+        showAlert({ type: 'error', title: 'Error', message: 'Please select a user from the suggestions' });
         return;
       }
     } else {
       // For channel, just need a name
       if (!newChatName.trim()) {
-        Alert.alert('Error', 'Please enter a channel name');
+        showAlert({ type: 'error', title: 'Error', message: 'Please enter a channel name' });
         return;
       }
     }
 
     if (!currentUserId) {
-      Alert.alert('Error', 'User not logged in');
+      showAlert({ type: 'error', title: 'Error', message: 'User not logged in' });
       return;
     }
 
@@ -394,26 +396,23 @@ export default function UserChat() {
         setAccountSuggestions([]);
         setNewChatType('channel');
         
-        Alert.alert('Success', 'Conversation created! Tap to start chatting.');
+        showAlert({ type: 'success', title: 'Success', message: 'Conversation created! Tap to start chatting.' });
       } else {
-        Alert.alert('Error', result.message || 'Failed to create conversation');
+        showAlert({ type: 'error', title: 'Error', message: result.message || 'Failed to create conversation' });
       }
     } catch (error) {
       console.error('Error creating conversation:', error);
-      Alert.alert('Error', 'Failed to create conversation. Please check your connection.');
+      showAlert({ type: 'error', title: 'Error', message: 'Failed to create conversation. Please check your connection.' });
     }
   };
 
   const handleAttachment = () => {
-    Alert.alert(
-      'Attachments',
-      'Choose attachment type:',
-      [
-        { text: 'Photo/Video', onPress: () => console.log('Photo selected') },
-        { text: 'Document', onPress: () => console.log('Document selected') },
-        { text: 'Cancel', style: 'cancel' }
-      ]
-    );
+    showAlert({
+      type: 'info',
+      title: 'Attachments',
+      message: 'Choose attachment type: Photo/Video or Document',
+      hint: 'This feature is coming soon!'
+    });
   };
 
   const handleConversationInfo = () => {
@@ -481,16 +480,16 @@ export default function UserChat() {
       const result = await response.json();
 
       if (result.ok) {
-        Alert.alert('Success', `${account.username} has been added to ${selectedChat.name}`);
+        showAlert({ type: 'success', title: 'Success', message: `${account.username} has been added to ${selectedChat.name}` });
         setShowAddMemberModal(false);
         setMemberSearchText('');
         setMemberSuggestions([]);
       } else {
-        Alert.alert('Error', result.message || 'Failed to add member');
+        showAlert({ type: 'error', title: 'Error', message: result.message || 'Failed to add member' });
       }
     } catch (error) {
       console.error('Error adding member:', error);
-      Alert.alert('Error', 'Failed to add member. Please check your connection.');
+      showAlert({ type: 'error', title: 'Error', message: 'Failed to add member. Please check your connection.' });
     } finally {
       setAddingMember(false);
     }
@@ -519,7 +518,7 @@ export default function UserChat() {
            </View>
         )}
       </View>
-      <View style={[styles.messageContent, dyn.border]}>
+      <View style={[styles.chatItemContent, dyn.border]}>
         <View style={styles.messageHeader}>
             <Text style={[styles.chatName, dyn.text]}>{item.name}</Text>
             <Text style={[styles.timeText, dyn.sub]}>{item.last_message_time}</Text>
@@ -909,7 +908,7 @@ export default function UserChat() {
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, dyn.card]}>
             <View style={[styles.modalHeader, dyn.border]}>
-              <Text style={[styles.modalTitle, dyn.text]}>Add Member to {selectedChat?.name}</Text>
+              <Text style={[styles.modalTitle, dyn.text]}>Add Member to Channel</Text>
               <TouchableOpacity onPress={() => {
                 setShowAddMemberModal(false);
                 setMemberSearchText('');
@@ -1004,6 +1003,18 @@ export default function UserChat() {
           </View>
         </View>
       </Modal>
+
+      <CustomAlert
+        visible={visible}
+        type={config.type}
+        title={config.title}
+        message={config.message}
+        hint={config.hint}
+        buttonText={config.buttonText}
+        onClose={hideAlert}
+        backgroundColor={colors.card}
+        textColor={colors.text}
+      />
     </SafeAreaView>
   );
 }
@@ -1024,7 +1035,7 @@ const styles = StyleSheet.create({
   channelIcon: { color: '#FFF', fontSize: 24, fontWeight: 'bold' },
   avatarText: { color: '#FFF', fontSize: 20, fontWeight: 'bold' },
   onlineDot: { width: 12, height: 12, borderRadius: 6, backgroundColor: '#2ecc71', position: 'absolute', bottom: 0, right: 0, borderWidth: 2 },
-  messageContent: { flex: 1, borderBottomWidth: 1, paddingBottom: 15 },
+  chatItemContent: { flex: 1, borderBottomWidth: 1, paddingBottom: 15 },
   messageHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 5 },
   chatName: { fontSize: 16, fontWeight: 'bold' },
   timeText: { fontSize: 12 },
