@@ -20,7 +20,7 @@ import {
 } from 'react-native';
 import WheelPicker from 'react-native-wheely';
 import CustomAlert from '../../components/CustomAlert';
-import { PHP_BACKEND_URL } from '../../constants/backend-config';
+import { getBackendUrl } from '../../constants/backend-config';
 import { useCustomAlert } from '../../hooks/useCustomAlert';
 
 // Supabase configuration (for direct API calls if needed)
@@ -77,9 +77,10 @@ export default function UserLogin() {
 
   // Test server connectivity - try to reach the server with a quick test
   const testServerConnection = async (): Promise<{ success: boolean; workingUrl?: string }> => {
+    const backendUrl = getBackendUrl();
     const testUrls = [
-      `${PHP_BACKEND_URL}/login.php`,
-      `${PHP_BACKEND_URL}/public/login.php`,
+      `${backendUrl}/login.php`,
+      `${backendUrl}/public/login.php`,
     ];
 
     for (const url of testUrls) {
@@ -138,12 +139,13 @@ export default function UserLogin() {
     try {
       setLoading(true);
 
+      const backendUrl = getBackendUrl();
       console.log('[Login] Starting login request...');
-      console.log('[Login] Server URL:', PHP_BACKEND_URL);
+      console.log('[Login] Server URL:', backendUrl);
       console.log('[Login] Username:', username);
 
       // Use PHP backend login endpoint (no timeout for now to diagnose)
-      const response = await fetch(`${PHP_BACKEND_URL}/login.php`, {
+      const response = await fetch(`${backendUrl}/login.php`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -203,12 +205,13 @@ export default function UserLogin() {
       console.error('[Login] Error name:', error.name);
       console.error('[Login] Error message:', error.message);
       
+      const backendUrl = getBackendUrl();
       let errorMessage = 'Unable to log in. Please try again.';
       
       if (error.name === 'AbortError') {
         errorMessage = `Request was aborted.\n\nThis should not happen anymore. Please report this error.`;
       } else if (error.message === 'Network request failed' || error.message.includes('Network')) {
-        errorMessage = `Cannot connect to server\n\nServer: ${PHP_BACKEND_URL}\n\nSteps to fix:\n\n1. Start PHP server in terminal:\n   cd C:\\Users\\Vince\\Downloads\\HRIS-TDT\n   php -S 192.168.15.168:8000 -t backend-php/public\n\n2. Verify IP address (run: ipconfig)\n\n3. Test in browser:\n   http://192.168.15.168:8000/login.php\n\n4. Check both devices on same WiFi`;
+        errorMessage = `Cannot connect to server\n\nServer: ${backendUrl}\n\nSteps to fix:\n\n1. Start PHP server in terminal:\n   cd C:\\Users\\Vince\\Downloads\\HRIS-TDT\n   php -S 192.168.15.168:8000 -t backend-php/public\n\n2. Verify IP address (run: ipconfig)\n\n3. Test in browser:\n   http://192.168.15.168:8000/login.php\n\n4. Check both devices on same WiFi`;
       } else if (error.message) {
         errorMessage = error.message;
       }
@@ -254,12 +257,13 @@ export default function UserLogin() {
       const faceHash = generateFaceHash(capturedBase64);
       const qrCodeData = `USER:${username}|HASH:${faceHash}|TIME:${timestamp}`;
 
+      const backendUrl = getBackendUrl();
       console.log('Creating account with data:', {
         username,
         hasPassword: !!password,
         faceDataLength: capturedBase64.length,
         qrCodeLength: qrCodeData.length,
-        backendUrl: PHP_BACKEND_URL,
+        backendUrl: backendUrl,
       });
 
       // Quick connection test first
@@ -267,7 +271,7 @@ export default function UserLogin() {
       const connectionTest = await testServerConnection();
       
       if (!connectionTest.success) {
-        throw new Error(`❌ Cannot reach server at ${PHP_BACKEND_URL}\n\n🔧 Quick Fix:\n1. Start PHP server:\n   cd backend-php\\public\n   php -S 0.0.0.0:8000\n\n2. Check server is running:\n   Open browser: ${PHP_BACKEND_URL}/signup.php\n\n3. Network check:\n   • Same WiFi network?\n   • Firewall blocking port 8000?\n   • IP address correct?`);
+        throw new Error(`❌ Cannot reach server at ${backendUrl}\n\n🔧 Quick Fix:\n1. Start PHP server:\n   cd backend-php\\public\n   php -S 0.0.0.0:8000\n\n2. Check server is running:\n   Open browser: ${backendUrl}/signup.php\n\n3. Network check:\n   • Same WiFi network?\n   • Firewall blocking port 8000?\n   • IP address correct?`);
       }
 
       // Create complete data URI to prevent PostgreSQL bytea conversion
@@ -277,7 +281,7 @@ export default function UserLogin() {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout for signup
       
-      const response = await fetch(`${PHP_BACKEND_URL}/signup.php`, {
+      const response = await fetch(`${backendUrl}/signup.php`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -346,12 +350,13 @@ export default function UserLogin() {
         stack: error.stack,
       });
       
+      const backendUrl = getBackendUrl();
       let errorMsg = error.message || 'Unable to create account. Please try again.';
       
       if (error.name === 'AbortError') {
         errorMsg = 'Connection timeout. Server took too long to respond. Please try again.';
       } else if (error.message === 'Network request failed') {
-        errorMsg = `Cannot connect to server at ${PHP_BACKEND_URL}\n\nMake sure:\n1. PHP server is running\n2. Your device is connected to the same WiFi\n3. Firewall allows port 8000`;
+        errorMsg = `Cannot connect to server at ${backendUrl}\n\nMake sure:\n1. PHP server is running\n2. Your device is connected to the same WiFi\n3. Firewall allows port 8000`;
       } else if (error.message) {
         errorMsg = error.message;
       }

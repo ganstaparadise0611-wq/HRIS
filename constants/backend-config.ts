@@ -1,17 +1,19 @@
 /**
- * Centralized Backend Configuration
+ * Centralized Backend Configuration with Auto-Network Detection
  * 
- * Update the IP address and port here to change it across the entire app.
- * This ensures all API calls point to the same backend server.
+ * This configuration automatically switches between local and ngrok URLs
+ * based on network availability. No manual switching needed!
  */
 
-// PHP Backend Configuration
-// Change this IP address to match your computer's local IP or deployed server
-// Options:
-// - http://localhost:8000 (for web browser/simulator on same machine)
-// - http://192.168.15.168:8000 (for physical device on same WiFi)
-// - https://your-url.ngrok-free.dev (for ngrok tunnel - works everywhere)
-export const PHP_BACKEND_URL = 'https://ellen-subtrigonal-velda.ngrok-free.dev';
+import { getCurrentBackendUrl } from './network-detector';
+
+// Get the current backend URL (automatically detected)
+export const getBackendUrl = (): string => {
+  return getCurrentBackendUrl();
+};
+
+// Legacy constant for backward compatibility (uses auto-detection)
+export const PHP_BACKEND_URL = getCurrentBackendUrl();
 
 // Supabase Configuration
 export const SUPABASE_URL = 'https://cgyqweheceduyrpxqvwd.supabase.co';
@@ -19,18 +21,24 @@ export const SUPABASE_ANON_KEY = 'sb_publishable_MJmY9d0yFuPp6KtQ62stGw_lFHMnNAK
 
 // Helper function to build API endpoints
 export const buildApiUrl = (endpoint: string): string => {
-  return `${PHP_BACKEND_URL}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
+  const baseUrl = getBackendUrl();
+  return `${baseUrl}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
 };
 
-// Common API endpoints
-export const API_ENDPOINTS = {
-  LOGIN: `${PHP_BACKEND_URL}/login.php`,
-  SIGNUP: `${PHP_BACKEND_URL}/signup.php`,
-  GET_CONVERSATIONS: `${PHP_BACKEND_URL}/get-conversations.php`,
-  GET_MESSAGES: `${PHP_BACKEND_URL}/get-messages.php`,
-  SEND_MESSAGE: `${PHP_BACKEND_URL}/send-message.php`,
-  SEARCH_ACCOUNTS: `${PHP_BACKEND_URL}/search-accounts.php`,
-  CREATE_CONVERSATION: `${PHP_BACKEND_URL}/create-conversation.php`,
-  ADD_CONVERSATION_MEMBER: `${PHP_BACKEND_URL}/add-conversation-member.php`,
-  // Add more endpoints as needed
-} as const;
+// Dynamic API endpoints builder
+export const getApiEndpoints = () => {
+  const baseUrl = getBackendUrl();
+  return {
+    LOGIN: `${baseUrl}/login.php`,
+    SIGNUP: `${baseUrl}/signup.php`,
+    GET_CONVERSATIONS: `${baseUrl}/get-conversations.php`,
+    GET_MESSAGES: `${baseUrl}/get-messages.php`,
+    SEND_MESSAGE: `${baseUrl}/send-message.php`,
+    SEARCH_ACCOUNTS: `${baseUrl}/search-accounts.php`,
+    CREATE_CONVERSATION: `${baseUrl}/create-conversation.php`,
+    ADD_CONVERSATION_MEMBER: `${baseUrl}/add-conversation-member.php`,
+  } as const;
+};
+
+// Common API endpoints (backward compatibility)
+export const API_ENDPOINTS = getApiEndpoints();
