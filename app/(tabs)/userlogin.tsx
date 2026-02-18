@@ -20,12 +20,11 @@ import {
 } from 'react-native';
 import WheelPicker from 'react-native-wheely';
 import CustomAlert from '../../components/CustomAlert';
-import { getBackendUrl } from '../../constants/backend-config';
+import { getBackendUrl, SUPABASE_ANON_KEY } from '../../constants/backend-config';
 import { useCustomAlert } from '../../hooks/useCustomAlert';
 
 // Supabase configuration (for direct API calls if needed)
 const SUPABASE_URL = 'https://cgyqweheceduyrpxqvwd.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_MJmY9d0yFuPp6KtQ62stGw_lFHMnNAK';
 
 export default function UserLogin() {
   const router = useRouter();
