@@ -12,7 +12,7 @@ import { useTheme } from './ThemeContext';
 
 // Supabase configuration
 const SUPABASE_URL = 'https://cgyqweheceduyrpxqvwd.supabase.co';
-import { SUPABASE_ANON_KEY } from '../../constants/backend-config';
+const SUPABASE_ANON_KEY = 'sb_publishable_MJmY9d0yFuPp6KtQ62stGw_lFHMnNAK';
 
 // PHP Backend API URL
 // Use the same backend URL as login.php (must be reachable from the device/emulator)

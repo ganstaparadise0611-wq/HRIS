@@ -20,6 +20,8 @@ error_reporting(E_ALL);
 
 // Set JSON header first to ensure proper response format
 header('Content-Type: application/json');
+// Measure start time for response timing
+$start_time = microtime(true);
 // #region agent log - entry point
 $logPath = __DIR__ . '/../../../.cursor/debug.log';
 @file_put_contents($logPath, json_encode(['id'=>'log_'.time().'_entry','timestamp'=>time()*1000,'location'=>'login.php:12','message'=>'Request received','data'=>['method'=>$_SERVER['REQUEST_METHOD']??'unknown','uri'=>$_SERVER['REQUEST_URI']??'unknown','has_input'=>!empty(file_get_contents('php://input'))],'runId'=>'run1','hypothesisId'=>'A'])."\n", FILE_APPEND);
@@ -163,5 +165,10 @@ $response = [
 $logPath = __DIR__ . '/../../../.cursor/debug.log';
 file_put_contents($logPath, json_encode(['id'=>'log_'.time().'_e','timestamp'=>time()*1000,'location'=>'login.php:95','message'=>'Response built','data'=>['response_keys'=>array_keys($response),'user_keys'=>array_keys($response['user']),'log_id_in_response'=>$response['user']['log_id']??null],'runId'=>'run1','hypothesisId'=>'E'])."\n", FILE_APPEND);
 // #endregion
+
+// Compute elapsed time and expose in header + logs
+$elapsed = (microtime(true) - $start_time) * 1000.0; // ms
+header('X-Response-Time-ms: ' . (int)$elapsed);
+@file_put_contents($logPath, json_encode(['id'=>'log_'.time().'_timing','timestamp'=>time()*1000,'location'=>'login.php:timing','message'=>'Response timing','data'=>['elapsed_ms'=>(int)$elapsed],'runId'=>'run1','hypothesisId'=>'E'])."\n", FILE_APPEND);
 
 echo json_encode($response);

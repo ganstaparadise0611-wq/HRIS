@@ -15,8 +15,9 @@
  */
 
 // Face++ API Configuration
-const FACEPP_API_KEY = 'uh2mznOkff2cXLRmr9MsuPcL0mLhMgkM';
-const FACEPP_API_SECRET = 'oxg9KAU5RvDcHO9n-kugYW4d3wsAVO2Y';
+// IMPORTANT: never commit secrets. Configure via environment variables instead.
+define('FACEPP_API_KEY', getenv('FACEPP_API_KEY') ?: 'YOUR_FACEPP_API_KEY_HERE');
+define('FACEPP_API_SECRET', getenv('FACEPP_API_SECRET') ?: 'YOUR_FACEPP_API_SECRET_HERE');
 const FACEPP_API_BASE_URL = 'https://api-us.faceplusplus.com/facepp/v3';
 
 // Global variable to store last Face++ API error
@@ -103,9 +104,24 @@ function facepp_compare_faces(string $image1Base64, string $image2Base64): ?arra
     // Face++ API endpoint for face comparison
     $url = FACEPP_API_BASE_URL . '/compare';
     
-    // Decode base64 images
-    $imageData1 = base64_decode($image1Base64, true);
-    $imageData2 = base64_decode($image2Base64, true);
+    // Helper: robust base64 decode (strip non-base64 chars, try URL-safe variants)
+    $safe_base64_decode = function($s) {
+        // Remove data URL prefix if present
+        $s = preg_replace('/^data:[^;]+;base64,/', '', $s);
+        // Strip characters not in base64 alphabet
+        $clean = preg_replace('/[^A-Za-z0-9+\/=\-_]/', '', $s);
+        $decoded = base64_decode($clean, true);
+        if ($decoded === false) {
+            // Try URL-safe replacements
+            $repl = strtr($clean, '-_', '+/');
+            $decoded = base64_decode($repl);
+        }
+        return $decoded;
+    };
+
+    // Decode base64 images (using robust helper)
+    $imageData1 = $safe_base64_decode($image1Base64);
+    $imageData2 = $safe_base64_decode($image2Base64);
     
     if ($imageData1 === false || $imageData2 === false) {
         $GLOBALS['facepp_last_error'] = 'Invalid base64 image data';

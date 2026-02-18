@@ -17,9 +17,7 @@ export const PHP_BACKEND_URL = getCurrentBackendUrl();
 
 // Supabase Configuration
 export const SUPABASE_URL = 'https://cgyqweheceduyrpxqvwd.supabase.co';
-// Do NOT hard-code secrets. Provide the real key via environment or a secure store.
-// This placeholder prevents accidental leaks in commits.
-export const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || 'REDACTED';
+export const SUPABASE_ANON_KEY = 'sb_publishable_MJmY9d0yFuPp6KtQ62stGw_lFHMnNAK';
 
 // Helper function to build API endpoints
 export const buildApiUrl = (endpoint: string): string => {

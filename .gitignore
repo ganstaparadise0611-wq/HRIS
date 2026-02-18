@@ -26,6 +26,11 @@ npm-debug.*
 yarn-debug.*
 yarn-error.*
 
+# backend logs / local runtime files
+backend-php/logs/
+backend-php/.env
+backend-php/.env.*
+
 # macOS
 .DS_Store
 *.pem

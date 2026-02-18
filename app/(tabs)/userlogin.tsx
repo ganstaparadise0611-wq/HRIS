@@ -20,11 +20,12 @@ import {
 } from 'react-native';
 import WheelPicker from 'react-native-wheely';
 import CustomAlert from '../../components/CustomAlert';
-import { getBackendUrl, SUPABASE_ANON_KEY } from '../../constants/backend-config';
+import { getBackendUrl } from '../../constants/backend-config';
 import { useCustomAlert } from '../../hooks/useCustomAlert';
 
 // Supabase configuration (for direct API calls if needed)
 const SUPABASE_URL = 'https://cgyqweheceduyrpxqvwd.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_MJmY9d0yFuPp6KtQ62stGw_lFHMnNAK';
 
 export default function UserLogin() {
   const router = useRouter();
@@ -74,52 +75,45 @@ export default function UserLogin() {
   const daysInMonth = getDaysInMonth(selectedYear, selectedMonth);
   const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
 
-  // Test server connectivity - try to reach the server with a quick test
+  // Test server connectivity - use light-weight public/test.php which doesn't touch Supabase
   const testServerConnection = async (): Promise<{ success: boolean; workingUrl?: string }> => {
     const backendUrl = getBackendUrl();
     const testUrls = [
-      `${backendUrl}/login.php`,
-      `${backendUrl}/public/login.php`,
+      `${backendUrl}/test.php`,
+      `${backendUrl}/public/test.php`,
     ];
 
     for (const url of testUrls) {
       try {
-        console.log('[Connection Test] Testing:', url);
+        console.log('[Connection Test] Testing (GET):', url);
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout for quick test
-        
-        // Try a simple POST request (login.php expects POST)
+        const timeoutId = setTimeout(() => controller.abort(), 1500); // 1.5s timeout for quick test
+
         const response = await fetch(url, {
-          method: 'POST',
+          method: 'GET',
           headers: {
-            'Content-Type': 'application/json',
-            'ngrok-skip-browser-warning': 'true',
+            'Cache-Control': 'no-cache',
           },
-          body: JSON.stringify({ test: true }), // Minimal test payload
           signal: controller.signal,
         });
-        
+
         clearTimeout(timeoutId);
-        
-        // Accept 2xx (success) or 400 (bad request - means server is working but rejected test data)
-        // 404 means file not found, which is not a working URL
-        if ((response.status >= 200 && response.status < 300) || response.status === 400) {
+
+        if (response && response.ok) {
           console.log('[Connection Test] ✅ Server reachable at:', url, 'Status:', response.status);
           return { success: true, workingUrl: url };
-        } else if (response.status === 404) {
+        } else if (response && response.status === 404) {
           console.log('[Connection Test] ⚠️ Server reachable but file not found at:', url, 'Status:', response.status);
         }
       } catch (error: any) {
-        // AbortError means timeout - server not reachable
         if (error.name === 'AbortError') {
           console.log('[Connection Test] ⏱️ Timeout for:', url);
         } else {
           console.log('[Connection Test] ❌ Failed for:', url, error.message);
         }
-        // Continue to next URL
       }
     }
-    
+
     console.log('[Connection Test] ❌ Server not reachable at any URL');
     return { success: false };
   };
@@ -143,7 +137,23 @@ export default function UserLogin() {
       console.log('[Login] Server URL:', backendUrl);
       console.log('[Login] Username:', username);
 
-      // Use PHP backend login endpoint (no timeout for now to diagnose)
+      // Quick connectivity check before attempting login to fail fast when server unreachable
+      try {
+        const conn = await testServerConnection();
+        if (!conn.success) {
+          showAlert({ type: 'error', title: 'Cannot reach server', message: `Server appears unreachable: ${backendUrl}` });
+          setLoading(false);
+          return;
+        }
+      } catch (e) {
+        console.warn('[Login] Connectivity test threw:', e);
+        // proceed to attempt login (with a slightly longer timeout)
+      }
+
+      // Use PHP backend login endpoint
+      // Apply a per-request timeout (handled by global fetch wrapper via init.timeoutMs)
+      // Increase login timeout to accommodate slower devices/networks
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const response = await fetch(`${backendUrl}/login.php`, {
         method: 'POST',
         headers: {
@@ -154,7 +164,12 @@ export default function UserLogin() {
           username: username,
           password: password,
         }),
-      });
+        // custom non-standard field read by our global wrapper
+        // 10000ms per attempt (wrapper will attempt up to its maxAttempts)
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+        // @ts-ignore
+        timeoutMs: 10000,
+      } as any);
 
       console.log('[Login] Response received, status:', response.status);
 
@@ -208,7 +223,7 @@ export default function UserLogin() {
       let errorMessage = 'Unable to log in. Please try again.';
       
       if (error.name === 'AbortError') {
-        errorMessage = `Request was aborted.\n\nThis should not happen anymore. Please report this error.`;
+        errorMessage = `Request timed out (server did not respond).\n\nServer: ${backendUrl}\n\nPlease ensure the PHP backend is running or try again.`;
       } else if (error.message === 'Network request failed' || error.message.includes('Network')) {
         errorMessage = `Cannot connect to server\n\nServer: ${backendUrl}\n\nSteps to fix:\n\n1. Start PHP server in terminal:\n   cd C:\\Users\\Vince\\Downloads\\HRIS-TDT\n   php -S 192.168.15.168:8000 -t backend-php/public\n\n2. Verify IP address (run: ipconfig)\n\n3. Test in browser:\n   http://192.168.15.168:8000/login.php\n\n4. Check both devices on same WiFi`;
       } else if (error.message) {
