@@ -6,18 +6,23 @@
 export interface NetworkConfig {
   local: string;
   ngrok: string;
-  preferred: 'auto' | 'local' | 'ngrok';
+  /** Optional: Cloudflare Tunnel, localtunnel, fxtun, etc. See TUNNEL-ALTERNATIVES.md */
+  custom?: string;
+  preferred: 'auto' | 'local' | 'ngrok' | 'custom';
 }
 
 // These URLs are automatically updated by start-system.ps1 and switch-network.ps1
 export const NETWORK_CONFIG: NetworkConfig = {
   
-  // Ngrok URL (updated when ngrok starts)
+  // Ngrok URL (updated when ngrok starts) — free tier has monthly bandwidth limit
   ngrok: 'https://ellen-subtrigonal-velda.ngrok-free.dev',
   
-  // Local network URL (auto-detected by script)
-  local: 'http://10.253.120.119:8000',
+  // Local network URL (your PC on Wi‑Fi) — same network only
+  local: 'http://192.168.15.216:8000',
 
-  // Preferred mode: 'auto' = try local first, fallback to ngrok
-  preferred: 'auto'
+  // Custom tunnel when ngrok hits bandwidth limit. See TUNNEL-ALTERNATIVES.md
+  custom: undefined, // Set to your tunnel URL, e.g. from: npx localtunnel --port 8000
+
+  // 'auto' = try local → custom → ngrok. When on the same Wi‑Fi as the backend, prefer 'local'.
+  preferred: 'local'
 };

@@ -42,12 +42,11 @@ if (empty($conversationId) || empty($senderId) || empty($content)) {
     exit;
 }
 
-// Insert message into Supabase
+// Insert message into Supabase (created_at defaults in DB if not sent)
 [$status, $data, $err] = supabase_insert('messages', [
-    'conversation_id' => $conversationId,
-    'sender_id' => $senderId,
+    'conversation_id' => (int)$conversationId,
+    'sender_id' => (int)$senderId,
     'content' => $content,
-    'created_at' => date('Y-m-d H:i:s')
 ]);
 
 if ($err) {

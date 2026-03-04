@@ -113,15 +113,28 @@ export default function UserMenu() {
     // Add more navigation cases here as needed
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     showAlert({
       type: 'warning',
       title: 'Logout',
       message: 'Are you sure you want to log out?',
       buttonText: 'Logout',
-      onClose: () => {
-        router.push('/userlogin');
+      onClose: async () => {
+        try {
+          // Clear all session data including remember-me
+          await Promise.all([
+            AsyncStorage.removeItem('userId'),
+            AsyncStorage.removeItem('username'),
+            AsyncStorage.removeItem('emp_id'),
+            AsyncStorage.removeItem('login_keep_logged'),
+            AsyncStorage.removeItem('login_saved_username'),
+            AsyncStorage.removeItem('userClockInTime'),
+          ]);
+        } catch (_e) {
+          // Ignore storage errors
+        }
         hideAlert();
+        router.replace('/userlogin');
       }
     });
   };
@@ -279,6 +292,28 @@ export default function UserMenu() {
             </TouchableOpacity>
         </View>
 
+        {/* FEATURE SHORTCUTS (from Home quick access) */}
+        <Text style={[styles.sectionTitle, dynamicStyles.subText]}>FEATURES</Text>
+        <View style={[styles.featuresRow, dynamicStyles.card]}>
+          {[
+            { label: 'Payslip', icon: 'file-tray-full-outline', route: '/userpayslip' },
+            { label: 'Overtime', icon: 'time-outline', route: '/userovertime' },
+            { label: 'Leave', icon: 'calendar-outline', route: '/userleave' },
+            { label: 'On Duty', icon: 'airplane-outline', route: '/useronduty' },
+          ].map((item) => (
+            <TouchableOpacity
+              key={item.label}
+              style={styles.featureItem}
+              onPress={() => router.push(item.route as any)}
+            >
+              <View style={[styles.featureIconBox, dynamicStyles.iconBox]}>
+                <Ionicons name={item.icon as any} size={22} color={colors.text} />
+              </View>
+              <Text style={[styles.featureLabel, dynamicStyles.text]}>{item.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+        
         {/* SETTINGS GROUP */}
         <Text style={[styles.sectionTitle, dynamicStyles.subText]}>GENERAL</Text>
         <View style={[styles.menuGroup, dynamicStyles.card]}>
@@ -460,6 +495,30 @@ const styles = StyleSheet.create({
   logoutBtn: { borderWidth: 1, padding: 15, borderRadius: 12, alignItems: 'center', marginBottom: 20 },
   logoutText: { color: '#C0392B', fontWeight: 'bold', fontSize: 16 },
   versionText: { textAlign: 'center', fontSize: 12, marginBottom: 30 },
+  featuresRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    borderRadius: 15,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 25,
+  },
+  featureItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  featureIconBox: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  featureLabel: {
+    fontSize: 11,
+    textAlign: 'center',
+  },
   // Password Modal Styles
   modalOverlay: {
     flex: 1,

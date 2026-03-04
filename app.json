@@ -1,10 +1,10 @@
 {
   "expo": {
-    "name": "tdt-greatday-clone",
+    "name": "TDT PowerSteel Corp.",
     "slug": "tdt-greatday-clone",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/TDT_PowerSteel.jpg",
     "scheme": "tdtgreatdayclone",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
@@ -27,10 +27,11 @@
     },
     "plugins": [
       "expo-router",
+      "expo-location",
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/splash-icon.png",
+          "image": "./assets/images/TDT_PowerSteel.jpg",
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#ffffff",

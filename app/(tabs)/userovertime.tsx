@@ -8,16 +8,9 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import CustomAlert from '../../components/CustomAlert';
 import { useCustomAlert } from '../../hooks/useCustomAlert';
+import { getBackendUrl, SUPABASE_URL, SUPABASE_ANON_KEY } from '../../constants/backend-config';
+import { recheckNetwork } from '../../constants/network-detector';
 import { useTheme } from './ThemeContext';
-
-// Supabase configuration
-const SUPABASE_URL = 'https://cgyqweheceduyrpxqvwd.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_MJmY9d0yFuPp6KtQ62stGw_lFHMnNAK';
-
-// PHP Backend API URL
-// Use the same backend URL as login.php (must be reachable from the device/emulator)
-// PHP Backend API URL
-const API_URL = 'http://192.168.15.14:8000';
 
 export default function UserOvertime() {
   const router = useRouter();
@@ -38,19 +31,19 @@ export default function UserOvertime() {
   const [showStartTimePicker, setShowStartTimePicker] = useState(false);
   const [showEndTimePicker, setShowEndTimePicker] = useState(false);
 
-  // Build backend URL for a PHP endpoint. Some setups serve files under "/public".
+  // Build backend URL for a PHP endpoint
   const buildPhpUrl = (path: string, opts?: { usePublic?: boolean }) => {
+    const baseUrl = getBackendUrl();
     const cleanPath = path.startsWith('/') ? path : `/${path}`;
     const prefix = opts?.usePublic ? '/public' : '';
-    return `${API_URL}${prefix}${cleanPath}`;
+    return `${baseUrl}${prefix}${cleanPath}`;
   };
 
-  // Fetch helper that retries with "/public" prefix if the server returns 404.
+  // Fetch helper that retries with "/public" prefix if the server returns 404
   const fetchPhpWithPublicFallback = async (
     path: string,
     init: RequestInit
   ): Promise<Response> => {
-    // Add ngrok header to the init options
     const headers = {
       ...init.headers,
       'ngrok-skip-browser-warning': 'true',
@@ -62,7 +55,6 @@ export default function UserOvertime() {
     if (res1.status !== 404) return res1;
 
     const url2 = buildPhpUrl(path, { usePublic: true });
-    console.log('[Overtime] fetch fallback: 404 from', url1, '→ trying', url2);
     return await fetch(url2, modifiedInit);
   };
 
@@ -92,39 +84,36 @@ export default function UserOvertime() {
             setEmpId(empIdNum);
           }
         }
-      } catch (e) {
-        console.warn('Failed to load stored data', e);
+      } catch (_e) {
+        // Ignore storage errors
       } finally {
-        // Now that username/emp_id have had a chance to load, fetch history
         await loadHistory();
       }
     };
     loadStoredDataAndHistory();
   }, []);
 
-  // Helper to ensure we have emp_id
+  useEffect(() => {
+    recheckNetwork().catch(() => {});
+  }, []);
+
   const ensureEmpId = async (): Promise<number | null> => {
     if (empId !== null) {
-      console.log('[Overtime] ensureEmpId: using cached emp_id:', empId);
       return empId;
     }
     let effectiveUsername = username;
     if (!effectiveUsername) {
-      // Fallback: try to pull username from storage if state isn't ready yet
       effectiveUsername = await AsyncStorage.getItem('username');
       if (effectiveUsername) {
-        console.log('[Overtime] ensureEmpId: loaded username from AsyncStorage:', effectiveUsername);
         setUsername(effectiveUsername);
       }
     }
     if (!effectiveUsername) {
-      console.log('[Overtime] ensureEmpId: missing username in state and storage');
       showAlert({ type: 'error', title: 'Not logged in', message: 'Username not found. Please log in again.' });
       return null;
     }
 
     try {
-      console.log('[Overtime] ensureEmpId: resolving emp_id for username:', effectiveUsername);
       const accRes = await fetch(
         `${SUPABASE_URL}/rest/v1/accounts?username=eq.${encodeURIComponent(effectiveUsername)}&select=log_id`,
         {
@@ -138,8 +127,6 @@ export default function UserOvertime() {
       );
 
       if (!accRes.ok) {
-        const t = await accRes.text().catch(() => '');
-        console.log('[Overtime] ensureEmpId: accounts fetch failed:', accRes.status, t);
         throw new Error('Failed to load account information.');
       }
 
@@ -154,12 +141,9 @@ export default function UserOvertime() {
       }
 
       const logIdValue = typeof logId === 'number' ? logId : Number(logId);
-      console.log('[Overtime] ensureEmpId: got log_id:', logIdValue);
       
-      // Try RPC function first
       let employees: any[] = [];
       try {
-        console.log('[Overtime] ensureEmpId: trying RPC get_emp_id_by_log_id');
         const rpcRes = await fetch(
           `${SUPABASE_URL}/rest/v1/rpc/get_emp_id_by_log_id`,
           {
@@ -175,22 +159,16 @@ export default function UserOvertime() {
         
         if (rpcRes.ok) {
           const rpcResult = await rpcRes.json();
-          console.log('[Overtime] ensureEmpId: RPC result:', rpcResult);
           if (rpcResult && rpcResult.emp_id) {
             employees = [{ emp_id: rpcResult.emp_id }];
           }
-        } else {
-          const t = await rpcRes.text().catch(() => '');
-          console.log('[Overtime] ensureEmpId: RPC failed:', rpcRes.status, t);
         }
-      } catch (rpcError) {
-        console.log('RPC function error:', rpcError);
+      } catch (_rpcError) {
+        // RPC may not exist; try direct query
       }
       
-      // If RPC didn't work, try direct query
       if (!employees || employees.length === 0) {
         const queryUrl = `${SUPABASE_URL}/rest/v1/employees?log_id=eq.${logIdValue}&select=emp_id`;
-        console.log('[Overtime] ensureEmpId: querying employees:', queryUrl);
         const empRes = await fetch(queryUrl, {
           method: 'GET',
           headers: {
@@ -202,22 +180,16 @@ export default function UserOvertime() {
 
         if (empRes.ok) {
           employees = await empRes.json();
-          console.log('[Overtime] ensureEmpId: employees query result:', employees);
-        } else {
-          const t = await empRes.text().catch(() => '');
-          console.log('[Overtime] ensureEmpId: employees query failed:', empRes.status, t);
         }
       }
       
       if (!employees || employees.length === 0) {
-        // Workaround mapping
         const logIdToEmpIdMap: { [key: number]: number } = {
-          3: 6, // Add more mappings as needed
+          3: 6,
         };
         
         if (logIdToEmpIdMap[logIdValue]) {
           const mappedEmpId = logIdToEmpIdMap[logIdValue];
-          console.log('[Overtime] ensureEmpId: using mapped emp_id:', mappedEmpId);
           setEmpId(mappedEmpId);
           await AsyncStorage.setItem('emp_id', String(mappedEmpId));
           return mappedEmpId;
@@ -228,12 +200,10 @@ export default function UserOvertime() {
       }
 
       const resolvedEmpId = employees[0].emp_id;
-      console.log('[Overtime] ensureEmpId: resolved emp_id:', resolvedEmpId);
       setEmpId(resolvedEmpId);
       await AsyncStorage.setItem('emp_id', String(resolvedEmpId));
       return resolvedEmpId as number;
     } catch (error: any) {
-      console.error('ensureEmpId error', error);
       showAlert({ type: 'error', title: 'Error', message: error.message || 'Unable to load employee information.' });
       return null;
     }
@@ -302,8 +272,6 @@ export default function UserOvertime() {
         reason: reason.trim(),
       };
 
-      console.log('[Overtime] submit: POST', buildPhpUrl('/overtime_requests.php'), payload);
-
       const res = await fetchPhpWithPublicFallback('/overtime_requests.php', {
         method: 'POST',
         headers: {
@@ -314,7 +282,6 @@ export default function UserOvertime() {
 
       if (!res.ok) {
         const rawErr = await res.text().catch(() => '');
-        console.log('[Overtime] submit: non-2xx response:', res.status, rawErr);
         let errData: any = {};
         try {
           errData = JSON.parse(rawErr || '{}');
@@ -325,7 +292,6 @@ export default function UserOvertime() {
       }
 
       const result = await res.json();
-      console.log('[Overtime] submit: response:', result);
       if (!result.ok) {
         throw new Error(result.message || 'Failed to submit overtime request.');
       }
@@ -334,7 +300,6 @@ export default function UserOvertime() {
       setReason('');
       await loadHistory();
     } catch (error: any) {
-      console.error('submitOvertime error', error);
       showAlert({ type: 'error', title: 'Error', message: error.message || 'Unable to submit overtime request.' });
     } finally {
       setSubmitting(false);
@@ -344,13 +309,13 @@ export default function UserOvertime() {
   // Load overtime history
   const loadHistory = async () => {
     const resolvedEmpId = await ensureEmpId();
-    if (resolvedEmpId === null) return;
+    if (resolvedEmpId === null) {
+      setHistory([]);
+      return;
+    }
 
     try {
       setLoadingHistory(true);
-
-      const url = `${buildPhpUrl('/overtime_requests.php')}?emp_id=${encodeURIComponent(String(resolvedEmpId))}`;
-      console.log('[Overtime] history: GET', url);
 
       const res = await fetchPhpWithPublicFallback(`/overtime_requests.php?emp_id=${encodeURIComponent(String(resolvedEmpId))}`, {
         method: 'GET',
@@ -360,29 +325,20 @@ export default function UserOvertime() {
       });
 
       if (!res.ok) {
-        const rawErr = await res.text().catch(() => '');
-        console.log('[Overtime] history: non-2xx response:', res.status, rawErr);
-        let errData: any = {};
-        try {
-          errData = JSON.parse(rawErr || '{}');
-        } catch {
-          errData = {};
-        }
-        throw new Error(errData.message || 'Failed to load overtime history.');
+        setHistory([]);
+        return;
       }
 
       const result = await res.json();
-      console.log('[Overtime] history: response:', result);
-      if (!result.ok) {
-        throw new Error(result.message || 'Failed to load overtime history.');
+      if (result && result.ok === true) {
+        setHistory(Array.isArray(result.data) ? result.data : []);
+      } else {
+        setHistory([]);
       }
-
-      setHistory(Array.isArray(result.data) ? result.data : []);
-    } catch (error: any) {
-      console.error('loadHistory error', error);
-      // Don't show alert on initial load failure
+    } catch (_error) {
+      setHistory([]);
       if (history.length > 0) {
-        showAlert({ type: 'error', title: 'Error', message: error.message || 'Unable to load overtime history.' });
+        showAlert({ type: 'error', title: 'Error', message: 'Unable to load overtime history.' });
       }
     } finally {
       setLoadingHistory(false);

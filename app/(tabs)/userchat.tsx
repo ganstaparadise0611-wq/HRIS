@@ -16,9 +16,11 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
+import UserAvatar from '../../components/UserAvatar';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import CustomAlert from '../../components/CustomAlert';
-import { PHP_BACKEND_URL } from '../../constants/backend-config';
+import { getBackendUrl } from '../../constants/backend-config';
+import { recheckNetwork } from '../../constants/network-detector';
 import { useCustomAlert } from '../../hooks/useCustomAlert';
 import { useTheme } from './ThemeContext';
 
@@ -30,6 +32,7 @@ type ChatData = {
   last_message_time: string; 
   unread_count: number; 
   online?: boolean;
+  other_user_id?: string; // For DMs: log_id of the other participant (for profile pic)
 };
 
 type Message = {
@@ -86,6 +89,11 @@ export default function UserChat() {
   
   // Chat info modal state
   const [showChatInfoModal, setShowChatInfoModal] = useState(false);
+
+  // Channel members modal state
+  const [showMembersModal, setShowMembersModal] = useState(false);
+  const [channelMembers, setChannelMembers] = useState<{ user_id: string; username: string; joined_at: string | null }[]>([]);
+  const [loadingMembers, setLoadingMembers] = useState(false);
   
   const flatListRef = useRef<FlatList>(null);
   const searchTimeoutRef = useRef<any>(null);
@@ -93,6 +101,10 @@ export default function UserChat() {
 
   useEffect(() => {
     loadUserData();
+  }, []);
+
+  useEffect(() => {
+    recheckNetwork().catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -117,21 +129,22 @@ export default function UserChat() {
     
     try {
       setLoadingChats(true);
-      const response = await fetch(`${PHP_BACKEND_URL}/get-conversations.php?user_id=${currentUserId}`, {
+      const response = await fetch(`${getBackendUrl()}/get-conversations.php?user_id=${currentUserId}`, {
         headers: { 'ngrok-skip-browser-warning': 'true' }
       });
       const result = await response.json();
       
       if (result.ok) {
-        // Format the data to match ChatData type
+        // Format the data to match ChatData type (ids as strings for consistency)
         const formattedChats = result.conversations.map((conv: any) => ({
-          id: conv.id,
+          id: String(conv.id),
           type: conv.type,
           name: conv.name,
           last_message: conv.last_message || 'No messages yet',
           last_message_time: formatTime(conv.last_message_time),
           unread_count: conv.unread_count || 0,
-          online: Math.random() > 0.5 // Mock online status
+          online: Math.random() > 0.5, // Mock online status
+          other_user_id: conv.other_user_id ?? undefined,
         }));
         setChatData(formattedChats);
       }
@@ -172,7 +185,7 @@ export default function UserChat() {
   const loadMessages = async (conversationId: string) => {
     try {
       setLoadingMessages(true);
-      const response = await fetch(`${PHP_BACKEND_URL}/get-messages.php?conversation_id=${conversationId}&limit=50`, {
+      const response = await fetch(`${getBackendUrl()}/get-messages.php?conversation_id=${conversationId}&limit=50`, {
         headers: { 'ngrok-skip-browser-warning': 'true' }
       });
       const result = await response.json();
@@ -225,7 +238,7 @@ export default function UserChat() {
     
     try {
       setSendingMessage(true);
-      const response = await fetch(`${PHP_BACKEND_URL}/send-message.php`, {
+      const response = await fetch(`${getBackendUrl()}/send-message.php`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -293,7 +306,7 @@ export default function UserChat() {
     try {
       setLoadingSuggestions(true);
       const response = await fetch(
-        `${PHP_BACKEND_URL}/search-accounts.php?query=${encodeURIComponent(query)}&current_user_id=${currentUserId}&limit=10`
+        `${getBackendUrl()}/search-accounts.php?query=${encodeURIComponent(query)}&current_user_id=${currentUserId}&limit=10`
       );
       const result = await response.json();
       
@@ -361,7 +374,7 @@ export default function UserChat() {
       }
 
       // Create conversation via API
-      const response = await fetch(`${PHP_BACKEND_URL}/create-conversation.php`, {
+      const response = await fetch(`${getBackendUrl()}/create-conversation.php`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -429,7 +442,7 @@ export default function UserChat() {
     try {
       setLoadingMemberSuggestions(true);
       const response = await fetch(
-        `${PHP_BACKEND_URL}/search-accounts.php?query=${encodeURIComponent(query)}&current_user_id=${currentUserId}&limit=10`
+        `${getBackendUrl()}/search-accounts.php?query=${encodeURIComponent(query)}&current_user_id=${currentUserId}&limit=10`
       );
       const result = await response.json();
       
@@ -465,7 +478,7 @@ export default function UserChat() {
 
     try {
       setAddingMember(true);
-      const response = await fetch(`${PHP_BACKEND_URL}/add-conversation-member.php`, {
+      const response = await fetch(`${getBackendUrl()}/add-conversation-member.php`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -473,7 +486,8 @@ export default function UserChat() {
         },
         body: JSON.stringify({
           conversation_id: selectedChat.id,
-          user_id: account.log_id
+          user_id: account.log_id,
+          inviter_id: currentUserId ?? undefined,
         })
       });
 
@@ -484,6 +498,7 @@ export default function UserChat() {
         setShowAddMemberModal(false);
         setMemberSearchText('');
         setMemberSuggestions([]);
+        if (result.system_message_posted) loadMessages(selectedChat.id);
       } else {
         showAlert({ type: 'error', title: 'Error', message: result.message || 'Failed to add member' });
       }
@@ -512,10 +527,15 @@ export default function UserChat() {
              <Text style={styles.channelIcon}>#</Text>
            </View>
         ) : (
-           <View style={[styles.avatar, { backgroundColor: '#F27121' }]}>
-             <Text style={styles.avatarText}>{item.name.charAt(0)}</Text>
-             {item.online && <View style={[styles.onlineDot, { borderColor: colors.background }]} />}
-           </View>
+           <UserAvatar
+             userId={item.other_user_id}
+             displayName={item.name}
+             size={50}
+             showOnline
+             isOnline={item.online}
+             backgroundColor="#F27121"
+             onlineDotBorderColor={colors.background}
+           />
         )}
       </View>
       <View style={[styles.chatItemContent, dyn.border]}>
@@ -536,6 +556,26 @@ export default function UserChat() {
   );
 
   const renderMessageItem = ({ item }: { item: Message }) => {
+    const systemMatch = item.content.match(/^added __(\d+)__\|(.+?) to the channel$/);
+    if (systemMatch) {
+      const [, addedUserId, addedUsername] = systemMatch;
+      const senderName = item.sender?.username || 'Someone';
+      const isAddedYou = String(addedUserId) === String(currentUserId);
+      const systemText = isAddedYou
+        ? `${senderName} added you to the group`
+        : `${senderName} added ${addedUsername} to the channel`;
+      return (
+        <View style={[styles.messageItemContainer, styles.systemMessageContainer]}>
+          <Text style={[styles.systemMessageText, dyn.sub]}>
+            {systemText}
+          </Text>
+          <Text style={[styles.systemMessageTime, dyn.sub]}>
+            {new Date(item.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+          </Text>
+        </View>
+      );
+    }
+
     const isOwnMessage = String(item.sender_id) === String(currentUserId);
     const senderName = item.sender?.username || 'Unknown';
     
@@ -559,6 +599,28 @@ export default function UserChat() {
     );
   };
 
+  const loadChannelMembers = async () => {
+    if (!selectedChat?.id) return;
+    try {
+      setLoadingMembers(true);
+      const response = await fetch(
+        `${getBackendUrl()}/get-conversation-members.php?conversation_id=${encodeURIComponent(selectedChat.id)}`,
+        { headers: { 'ngrok-skip-browser-warning': 'true' } }
+      );
+      const result = await response.json();
+      if (result.ok && Array.isArray(result.members)) {
+        setChannelMembers(result.members);
+      } else {
+        setChannelMembers([]);
+      }
+    } catch (e) {
+      console.error('Error loading channel members:', e);
+      setChannelMembers([]);
+    } finally {
+      setLoadingMembers(false);
+    }
+  };
+
   // Conversation View
   if (selectedChat) {
     return (
@@ -575,6 +637,29 @@ export default function UserChat() {
               <Text style={[styles.onlineStatus, { color: '#2ecc71' }]}>● Online</Text>
             )}
           </View>
+          {selectedChat.type === 'channel' && (
+            <>
+              <TouchableOpacity
+                style={styles.iconBtn}
+                onPress={() => {
+                  setShowMembersModal(true);
+                  loadChannelMembers();
+                }}
+                activeOpacity={0.6}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Ionicons name="people" size={26} color={colors.text} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.iconBtn}
+                onPress={() => setShowAddMemberModal(true)}
+                activeOpacity={0.6}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Ionicons name="person-add" size={26} color={colors.text} />
+              </TouchableOpacity>
+            </>
+          )}
           <TouchableOpacity 
             style={styles.iconBtn} 
             onPress={handleConversationInfo}
@@ -679,7 +764,206 @@ export default function UserChat() {
                     </View>
                   </View>
                 )}
+
+                {selectedChat?.type === 'channel' && (
+                  <>
+                    <TouchableOpacity
+                      style={[styles.chatInfoItem, styles.chatInfoAction]}
+                      onPress={() => {
+                        setShowChatInfoModal(false);
+                        setShowMembersModal(true);
+                        loadChannelMembers();
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="people" size={24} color="#F27121" />
+                      <View style={styles.chatInfoTextContainer}>
+                        <Text style={[styles.chatInfoLabel, dyn.sub]}>Channel members</Text>
+                        <Text style={[styles.chatInfoValue, { color: '#F27121' }]}>
+                          View who's in this channel
+                        </Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={20} color={colors.subText} />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.chatInfoItem, styles.chatInfoAction]}
+                      onPress={() => {
+                        setShowChatInfoModal(false);
+                        setShowAddMemberModal(true);
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="person-add" size={24} color="#F27121" />
+                      <View style={styles.chatInfoTextContainer}>
+                        <Text style={[styles.chatInfoLabel, dyn.sub]}>Add member</Text>
+                        <Text style={[styles.chatInfoValue, { color: '#F27121' }]}>
+                          Invite someone to this channel
+                        </Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={20} color={colors.subText} />
+                    </TouchableOpacity>
+                  </>
+                )}
               </View>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Channel Members Modal */}
+        <Modal
+          visible={showMembersModal}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowMembersModal(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalContent, dyn.card]}>
+              <View style={[styles.modalHeader, dyn.border]}>
+                <Text style={[styles.modalTitle, dyn.text]}>Channel Members</Text>
+                <TouchableOpacity onPress={() => setShowMembersModal(false)}>
+                  <Ionicons name="close" size={24} color={colors.text} />
+                </TouchableOpacity>
+              </View>
+              <ScrollView style={styles.modalBody}>
+                {loadingMembers ? (
+                  <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="large" color="#F27121" />
+                  </View>
+                ) : channelMembers.length === 0 ? (
+                  <Text style={[styles.noResultsText, dyn.sub]}>No members found</Text>
+                ) : (
+                  <View style={[styles.suggestionsContainer, dyn.border]}>
+                    <Text style={[styles.suggestionsHeader, dyn.sub]}>
+                      {channelMembers.length} member{channelMembers.length !== 1 ? 's' : ''}
+                    </Text>
+                    {channelMembers.map((member) => (
+                      <View key={member.user_id} style={[styles.suggestionItem, dyn.border]}>
+                        <UserAvatar
+                          userId={member.user_id}
+                          displayName={member.username}
+                          size={40}
+                          backgroundColor="#F27121"
+                        />
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.suggestionUsername, dyn.text]}>{member.username}</Text>
+                          {member.joined_at && (
+                            <Text style={[styles.suggestionId, dyn.sub]}>
+                              Joined {new Date(member.joined_at).toLocaleDateString()}
+                            </Text>
+                          )}
+                        </View>
+                        {String(member.user_id) === String(currentUserId) && (
+                          <Text style={[styles.suggestionId, { color: '#F27121', fontSize: 12 }]}>You</Text>
+                        )}
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Add Member Modal (when viewing a channel) */}
+        <Modal
+          visible={showAddMemberModal}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowAddMemberModal(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalContent, dyn.card]}>
+              <View style={[styles.modalHeader, dyn.border]}>
+                <Text style={[styles.modalTitle, dyn.text]}>Add Member to Channel</Text>
+                <TouchableOpacity onPress={() => {
+                  setShowAddMemberModal(false);
+                  setMemberSearchText('');
+                  setMemberSuggestions([]);
+                }}>
+                  <Ionicons name="close" size={24} color={colors.text} />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView style={styles.modalBody}>
+                <Text style={[styles.label, dyn.text]}>Search User</Text>
+                <View style={{ position: 'relative' }}>
+                  <TextInput
+                    style={[styles.input, dyn.border, { color: colors.text, backgroundColor: isDark ? '#2C2C2C' : '#F5F5F5' }]}
+                    placeholder="Type username to search..."
+                    placeholderTextColor={colors.subText}
+                    value={memberSearchText}
+                    onChangeText={handleMemberSearchInputChange}
+                    autoCapitalize="none"
+                  />
+                  {loadingMemberSuggestions && (
+                    <ActivityIndicator
+                      size="small"
+                      color="#F27121"
+                      style={{ position: 'absolute', right: 15, top: 15 }}
+                    />
+                  )}
+                </View>
+
+                {memberSuggestions.length > 0 && (
+                  <View style={[styles.suggestionsContainer, dyn.card, dyn.border]}>
+                    <Text style={[styles.suggestionsHeader, dyn.sub]}>
+                      Select Member ({memberSuggestions.length} found)
+                    </Text>
+                    {memberSuggestions.map((account) => (
+                      <TouchableOpacity
+                        key={account.log_id}
+                        style={[styles.suggestionItem, dyn.border]}
+                        onPress={() => handleAddMemberToChannel(account)}
+                        disabled={addingMember}
+                      >
+                        <View style={[styles.suggestionAvatar, { backgroundColor: '#F27121' }]}>
+                          <Text style={styles.suggestionAvatarText}>
+                            {account.username.charAt(0).toUpperCase()}
+                          </Text>
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.suggestionUsername, dyn.text]}>
+                            {account.username}
+                          </Text>
+                          <Text style={[styles.suggestionId, dyn.sub]}>
+                            ID: {account.log_id}
+                          </Text>
+                        </View>
+                        {addingMember ? (
+                          <ActivityIndicator size="small" color="#F27121" />
+                        ) : (
+                          <Ionicons name="person-add" size={20} color="#F27121" />
+                        )}
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
+
+                {memberSearchText.trim() && !loadingMemberSuggestions && memberSuggestions.length === 0 && (
+                  <View style={[styles.noResultsContainer, dyn.border]}>
+                    <Ionicons name="search" size={32} color={colors.subText} />
+                    <Text style={[styles.noResultsText, dyn.sub]}>
+                      No users found matching "{memberSearchText}"
+                    </Text>
+                    <Text style={[styles.noResultsHint, dyn.sub]}>
+                      Try a different username
+                    </Text>
+                  </View>
+                )}
+
+                <View style={styles.modalActions}>
+                  <TouchableOpacity
+                    style={[styles.modalButton, styles.cancelButton, { borderColor: colors.border }]}
+                    onPress={() => {
+                      setShowAddMemberModal(false);
+                      setMemberSearchText('');
+                      setMemberSuggestions([]);
+                    }}
+                  >
+                    <Text style={[styles.cancelButtonText, dyn.text]}>Close</Text>
+                  </TouchableOpacity>
+                </View>
+              </ScrollView>
             </View>
           </View>
         </Modal>
@@ -1051,6 +1335,9 @@ const styles = StyleSheet.create({
   messagesContainer: { padding: 20 },
   messageItemContainer: { marginBottom: 15, maxWidth: '75%', alignSelf: 'flex-start' },
   ownMessageContainer: { alignSelf: 'flex-end' },
+  systemMessageContainer: { alignSelf: 'center', maxWidth: '100%', marginVertical: 8, alignItems: 'center' },
+  systemMessageText: { fontSize: 13, fontStyle: 'italic', textAlign: 'center' },
+  systemMessageTime: { fontSize: 10, marginTop: 2 },
   senderName: { fontSize: 12, marginBottom: 4, marginLeft: 12 },
   messageBubble: { borderRadius: 18, paddingHorizontal: 16, paddingVertical: 10, maxWidth: '100%' },
   ownMessageBubble: { backgroundColor: '#F27121', borderBottomRightRadius: 4 },
@@ -1275,6 +1562,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 20,
+  },
+  chatInfoAction: {
+    marginTop: 8,
+    paddingVertical: 4,
     gap: 16
   },
   chatInfoTextContainer: {

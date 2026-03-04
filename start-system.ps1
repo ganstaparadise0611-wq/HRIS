@@ -49,6 +49,34 @@ Write-Host ""
 Write-Host "Starting in $Mode mode..." -ForegroundColor Green
 Write-Host ""
 
+# Load optional backend-php/.env (ignored by git) so Face++/Supabase keys can be set locally
+function Import-DotEnvFile {
+    param([string]$Path)
+    if (-not (Test-Path $Path)) { return }
+    try {
+        $lines = Get-Content $Path -ErrorAction Stop
+        foreach ($line in $lines) {
+            $t = $line.Trim()
+            if (-not $t) { continue }
+            if ($t.StartsWith("#")) { continue }
+            $idx = $t.IndexOf("=")
+            if ($idx -lt 1) { continue }
+            $k = $t.Substring(0, $idx).Trim()
+            $v = $t.Substring($idx + 1).Trim()
+            # strip surrounding quotes
+            if (($v.StartsWith('"') -and $v.EndsWith('"')) -or ($v.StartsWith("'") -and $v.EndsWith("'"))) {
+                $v = $v.Substring(1, $v.Length - 2)
+            }
+            if ($k) { $env:$k = $v }
+        }
+        Write-Host "[OK] Loaded environment from $Path" -ForegroundColor Green
+    } catch {
+        Write-Host "WARNING: Failed to load $Path: $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+}
+
+Import-DotEnvFile -Path (Join-Path $PWD "backend-php\.env")
+
 # Step 1: Start PHP Server in background
 Write-Host "[1/4] Starting PHP backend server..." -ForegroundColor Cyan
 $phpPath = "C:\xampp\php\php.exe"
@@ -60,11 +88,20 @@ if (-not (Test-Path $phpPath)) {
     }
 }
 
+$faceppKey = $env:FACEPP_API_KEY
+$faceppSecret = $env:FACEPP_API_SECRET
+$supabaseServiceRole = $env:SUPABASE_SERVICE_ROLE_KEY
+$supabaseAnon = $env:SUPABASE_ANON_KEY
+
 $serverJob = Start-Job -ScriptBlock {
-    param($phpPath, $workDir)
+    param($phpPath, $workDir, $faceppKey, $faceppSecret, $supabaseServiceRole, $supabaseAnon)
     Set-Location $workDir
+    if ($faceppKey) { $env:FACEPP_API_KEY = $faceppKey }
+    if ($faceppSecret) { $env:FACEPP_API_SECRET = $faceppSecret }
+    if ($supabaseServiceRole) { $env:SUPABASE_SERVICE_ROLE_KEY = $supabaseServiceRole }
+    if ($supabaseAnon) { $env:SUPABASE_ANON_KEY = $supabaseAnon }
     & $phpPath -S 0.0.0.0:8000 -t backend-php/public
-} -ArgumentList $phpPath, $PWD
+} -ArgumentList $phpPath, $PWD, $faceppKey, $faceppSecret, $supabaseServiceRole, $supabaseAnon
 
 Write-Host "[OK] PHP server started on port 8000" -ForegroundColor Green
 Start-Sleep -Seconds 2

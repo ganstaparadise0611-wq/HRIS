@@ -29,14 +29,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     // Get today's activities by default, or all if requested
     $today_only = isset($_GET['today_only']) && $_GET['today_only'] === 'true';
     
-    $path = "rest/v1/user_activities?emp_id=eq.{$emp_id}&select=*&order=created_at.desc";
+    $path = "rest/v1/user_activities?emp_id=eq.{$emp_id}&select=activity_id,emp_id,task_description,location,photo_data,status,created_at,file_type&order=created_at.desc";
     
     if ($today_only) {
         $today = date('Y-m-d');
         $path .= "&created_at=gte.{$today}T00:00:00Z";
     }
     
-    [$status, $result, $err] = supabase_request('GET', $path);
+    [$status, $result, $err] = supabase_request('GET', $path, null, ['Accept: application/json']);
     
     if ($err) {
         http_response_code(500);
@@ -50,32 +50,52 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         exit;
     }
     
-    // Decode photo_url from bytea if needed
-    // Supabase REST API returns bytea as base64 strings by default when using JSON
-    // But it might also return as hex, so we handle both cases
+    // Decode photo_data from bytea and expose as photo_url for the app
+    // Supabase/PostgREST returns bytea as base64 (JSON) or hex (e.g. \x5824...)
     if (is_array($result)) {
         foreach ($result as &$item) {
-            if (isset($item['photo_url']) && $item['photo_url'] !== null) {
-                $photoUrl = $item['photo_url'];
-                
-                if (is_string($photoUrl)) {
-                    // Check if it's hex format (starts with \x or is pure hex)
-                    if (strpos($photoUrl, '\\x') === 0) {
-                        // Remove \x prefix and decode hex
-                        $hex = substr($photoUrl, 2);
-                        $decoded = @hex2bin($hex);
-                        if ($decoded !== false) {
-                            $item['photo_url'] = $decoded;
-                        }
-                    } elseif (ctype_xdigit($photoUrl) && strlen($photoUrl) > 20) {
-                        // If it's pure hex (long enough to be image data), decode it
-                        $decoded = @hex2bin($photoUrl);
-                        if ($decoded !== false) {
-                            $item['photo_url'] = $decoded;
-                        }
-                    }
-                    // If it's already base64, leave it as is
+            $raw = $item['photo_data'] ?? $item['photo_url'] ?? $item['photo'] ?? null;
+            if ($raw === null) {
+                continue;
+            }
+            // Handle bytea as array of bytes (some APIs)
+            if (is_array($raw)) {
+                $raw = implode('', array_map('chr', $raw));
+                $raw = base64_encode($raw);
+                $item['photo_url'] = $raw;
+                continue;
+            }
+            if (!is_string($raw) || trim($raw) === '') {
+                continue;
+            }
+            $raw = trim($raw);
+            $b64 = null;
+            // Hex format: \x + hex digits (PostgreSQL/Supabase bytea hex - first char is backslash)
+            $hex = null;
+            if (strlen($raw) > 4 && $raw[0] === '\\' && $raw[1] === 'x') {
+                $hex = substr($raw, 2);
+            } elseif (strlen($raw) > 4 && (strpos($raw, '0x') === 0 || stripos($raw, '0x') === 0)) {
+                $hex = substr($raw, 2);
+            }
+            if ($hex !== null && preg_match('/^[0-9a-fA-F]+$/', $hex) && strlen($hex) % 2 === 0) {
+                $bin = @hex2bin($hex);
+                if ($bin !== false) {
+                    $b64 = base64_encode($bin);
                 }
+            }
+            // Pure hex (no prefix)
+            elseif (strlen($raw) > 20 && preg_match('/^[0-9a-fA-F]+$/', $raw) && strlen($raw) % 2 === 0) {
+                $bin = @hex2bin($raw);
+                if ($bin !== false) {
+                    $b64 = base64_encode($bin);
+                }
+            }
+            // PostgREST returns bytea as base64 in JSON
+            if ($b64 === null) {
+                $b64 = $raw;
+            }
+            if ($b64 !== null && $b64 !== '') {
+                $item['photo_url'] = $b64;
             }
         }
         unset($item);
@@ -90,9 +110,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
 
 // POST endpoint - Create new activity
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // Check if it's multipart form data (with photo upload)
-    if (!empty($_FILES['photo']) && !empty($_FILES['photo']['tmp_name'])) {
-        // Handle multipart form data with photo
+    $photoBase64 = '';
+    $fileType = null;
+
+    // Check if it's multipart form data (with photo/file upload)
+    if (
+        (!empty($_FILES['photo']) && !empty($_FILES['photo']['tmp_name'])) ||
+        (!empty($_FILES['file']) && !empty($_FILES['file']['tmp_name']))
+    ) {
+        // Prefer 'photo', fall back to generic 'file'
+        $fieldName = !empty($_FILES['photo']['tmp_name']) ? 'photo' : 'file';
+
         $emp_id = isset($_POST['emp_id']) ? (int)$_POST['emp_id'] : 0;
         $task_description = isset($_POST['task_description']) ? trim($_POST['task_description']) : '';
         $location = isset($_POST['location']) ? trim($_POST['location']) : '';
@@ -103,18 +131,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
         }
         
-        // Read photo file
-        $tmp = $_FILES['photo']['tmp_name'];
-        $photoData = @file_get_contents($tmp);
-        if ($photoData === false) {
+        // Read uploaded file (image or any file)
+        $tmp = $_FILES[$fieldName]['tmp_name'];
+        $fileType = $_FILES[$fieldName]['type'] ?? null;
+        $fileData = @file_get_contents($tmp);
+        if ($fileData === false) {
             http_response_code(500);
-            echo json_encode(['ok' => false, 'message' => 'Failed to read uploaded photo']);
+            echo json_encode(['ok' => false, 'message' => 'Failed to read uploaded file']);
             exit;
         }
         
-        // Convert photo to base64 for storage
-        // Supabase REST API accepts base64 strings for bytea columns
-        $photoBase64 = base64_encode($photoData);
+        // Convert to base64 for storage
+        $photoBase64 = base64_encode($fileData);
         
     } else {
         // Handle JSON body
@@ -131,6 +159,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $task_description = isset($body['task_description']) ? trim($body['task_description']) : '';
         $location = isset($body['location']) ? trim($body['location']) : '';
         $photoBase64 = isset($body['photo_base64']) ? trim($body['photo_base64']) : '';
+        $fileType = isset($body['file_type']) ? trim($body['file_type']) : null;
         
         if (empty($emp_id) || empty($task_description) || empty($location)) {
             http_response_code(400);
@@ -139,7 +168,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
     
-    // Insert activity into Supabase
+    // Insert activity into Supabase (table uses emp_id, photo_data, file_type)
     $insertData = [
         'emp_id' => $emp_id,
         'task_description' => $task_description,
@@ -147,10 +176,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'status' => 'pending',
     ];
     
-    // Only add photo_url if we have one
-    // Supabase REST API accepts base64 strings for bytea columns
-    if (isset($photoBase64) && !empty($photoBase64)) {
-        $insertData['photo_url'] = $photoBase64;
+    // Only add photo_data if we have one
+    if (isset($photoBase64) && $photoBase64 !== '') {
+        $insertData['photo_data'] = $photoBase64;
+        // Use detected MIME type when available, otherwise default to image/jpeg
+        $insertData['file_type'] = $fileType ?: 'image/jpeg';
     }
     
     [$status, $result, $err] = supabase_insert('user_activities', $insertData);
@@ -162,9 +192,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     
     if ($status < 200 || $status >= 300) {
-        http_response_code($status);
-        echo json_encode(['ok' => false, 'message' => 'Failed to create activity', 'status' => $status, 'body' => $result]);
+        $supabaseMsg = is_array($result) ? ($result['message'] ?? $result['details'] ?? json_encode($result)) : (string)$result;
+        http_response_code(500);
+        echo json_encode(['ok' => false, 'message' => 'Failed to create activity: ' . $supabaseMsg, 'status' => $status, 'detail' => $result]);
         exit;
+    }
+
+    // Also create a feed entry so the activity appears in Feeds
+    if (is_array($result) && count($result) > 0 && isset($result[0]['activity_id'])) {
+        $activityRow = $result[0];
+        $feedData = [
+            'emp_id'      => $emp_id,
+            'caption'     => $task_description,
+            'image_url'   => null,
+            'is_achievement' => false,
+            'kind'        => 'activity',
+            'activity_id' => $activityRow['activity_id'],
+        ];
+        // Fire-and-forget; if this fails we still keep the activity
+        supabase_insert('feeds_posts', $feedData);
     }
     
     echo json_encode([

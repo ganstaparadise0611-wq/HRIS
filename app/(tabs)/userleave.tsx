@@ -9,14 +9,9 @@ import { GestureHandlerRootView, Swipeable } from 'react-native-gesture-handler'
 import { SafeAreaView } from 'react-native-safe-area-context';
 import CustomAlert from '../../components/CustomAlert';
 import { useCustomAlert } from '../../hooks/useCustomAlert';
+import { getBackendUrl, SUPABASE_URL, SUPABASE_ANON_KEY } from '../../constants/backend-config';
+import { recheckNetwork } from '../../constants/network-detector';
 import { useTheme } from './ThemeContext';
-
-// Supabase configuration (same project as login)
-const SUPABASE_URL = 'https://cgyqweheceduyrpxqvwd.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_MJmY9d0yFuPp6KtQ62stGw_lFHMnNAK';
-
-// PHP Backend API URL (set this in your .env or environment)
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.15.132:8000';
 
 export default function UserLeave() {
   const router = useRouter();
@@ -72,20 +67,22 @@ export default function UserLeave() {
         if (stored) {
           setUsername(stored);
         }
-        // Try to load stored emp_id (might have been stored during login)
         const storedEmpId = await AsyncStorage.getItem('emp_id');
         if (storedEmpId) {
           const empIdNum = parseInt(storedEmpId, 10);
           if (!isNaN(empIdNum)) {
             setEmpId(empIdNum);
-            console.log('Loaded emp_id from storage:', empIdNum);
           }
         }
-      } catch (e) {
-        console.warn('Failed to load stored data', e);
+      } catch (_e) {
+        // Ignore storage errors
       }
     };
     loadStoredData();
+  }, []);
+
+  useEffect(() => {
+    recheckNetwork().catch(() => {});
   }, []);
 
   // Helper to ensure we have emp_id for the logged-in user
@@ -111,8 +108,6 @@ export default function UserLeave() {
       );
 
       if (!accRes.ok) {
-        const errorText = await accRes.text();
-        console.error('Account fetch failed:', accRes.status, errorText);
         throw new Error('Failed to load account information.');
       }
 
@@ -126,16 +121,10 @@ export default function UserLeave() {
         throw new Error('log_id is missing on account.');
       }
 
-      console.log('Found log_id:', logId, 'Type:', typeof logId);
-
-      // 2) Get emp_id from employees by log_id
-      // Ensure log_id is a number for the query
       const logIdValue = typeof logId === 'number' ? logId : Number(logId);
       
-      // Try RPC function first (bypasses RLS if function exists)
       let employees: any[] = [];
       try {
-        console.log('Trying RPC function get_emp_id_by_log_id...');
         const rpcRes = await fetch(
           `${SUPABASE_URL}/rest/v1/rpc/get_emp_id_by_log_id`,
           {
@@ -151,23 +140,16 @@ export default function UserLeave() {
         
         if (rpcRes.ok) {
           const rpcResult = await rpcRes.json();
-          console.log('RPC function result:', rpcResult);
           if (rpcResult && rpcResult.emp_id) {
             employees = [{ emp_id: rpcResult.emp_id, log_id: logIdValue }];
           }
-        } else {
-          console.log('RPC function not available or failed, trying direct query...');
         }
-      } catch (rpcError) {
-        console.log('RPC function error (may not exist):', rpcError);
+      } catch (_rpcError) {
+        // RPC may not exist
       }
       
-      // If RPC didn't work, try direct query (will fail if RLS blocks)
       if (!employees || employees.length === 0) {
-        // Build the query URL properly - Supabase PostgREST format
         const queryUrl = `${SUPABASE_URL}/rest/v1/employees?log_id=eq.${logIdValue}&select=emp_id,log_id,name`;
-        
-        console.log('Querying employees with URL:', queryUrl);
         
         const empRes = await fetch(queryUrl, {
           method: 'GET',
@@ -179,21 +161,13 @@ export default function UserLeave() {
         });
 
         if (!empRes.ok) {
-          const errorText = await empRes.text();
-          console.error('Employee fetch failed:', empRes.status, errorText);
           throw new Error(`Failed to load employee information. Status: ${empRes.status}`);
         }
 
         employees = await empRes.json();
-        console.log('Employee query result:', employees, 'for log_id:', logIdValue);
-        console.log('Response status:', empRes.status, 'OK:', empRes.ok);
       }
       
       if (!employees || employees.length === 0) {
-        // Try alternative query format - sometimes Supabase needs the value in quotes or different format
-        console.warn(`No employee found with log_id: ${logIdValue}, trying alternative query format...`);
-        
-        // Alternative 1: Try with string format (quoted)
         try {
           const altRes1 = await fetch(
             `${SUPABASE_URL}/rest/v1/employees?log_id=eq."${logIdValue}"&select=emp_id,log_id,name`,
@@ -207,26 +181,18 @@ export default function UserLeave() {
             }
           );
           
-          console.log('Alternative query 1 status:', altRes1.status, 'OK:', altRes1.ok);
-          
           if (altRes1.ok) {
             const altEmployees = await altRes1.json();
-            console.log('Alternative query 1 result:', altEmployees);
             if (altEmployees && altEmployees.length > 0) {
               employees = altEmployees;
             }
-          } else {
-            const altError = await altRes1.text();
-            console.log('Alternative query 1 error:', altError);
           }
-        } catch (alt1Error) {
-          console.error('Alternative query 1 exception:', alt1Error);
+        } catch (_alt1Error) {
+          // Ignore
         }
         
-        // Alternative 2: Fetch all and filter client-side (if RLS allows)
         if (!employees || employees.length === 0) {
           try {
-            console.log('Trying to fetch all employees for client-side filtering...');
             const allRes = await fetch(
               `${SUPABASE_URL}/rest/v1/employees?select=emp_id,log_id,name`,
               {
@@ -239,71 +205,47 @@ export default function UserLeave() {
               }
             );
             
-            console.log('Fetch all employees status:', allRes.status, 'OK:', allRes.ok);
-            
             if (allRes.ok) {
               const allEmployees = await allRes.json();
-              console.log('All employees fetched:', allEmployees);
-              console.log('Total employees found:', allEmployees?.length || 0);
               
               if (allEmployees && Array.isArray(allEmployees)) {
-                // Find matching log_id (handle type conversions)
                 const matched = allEmployees.find((emp: any) => {
                   if (emp.log_id == null) return false;
                   const empLogId = emp.log_id;
-                  const matches = empLogId === logIdValue || 
-                                 empLogId === String(logIdValue) || 
-                                 Number(empLogId) === logIdValue ||
-                                 String(empLogId) === String(logIdValue) ||
-                                 empLogId == logIdValue; // loose equality for type coercion
-                  if (matches) {
-                    console.log('Match found!', { empLogId, logIdValue, emp });
-                  }
-                  return matches;
+                  return empLogId === logIdValue || 
+                         empLogId === String(logIdValue) || 
+                         Number(empLogId) === logIdValue ||
+                         String(empLogId) === String(logIdValue) ||
+                         empLogId == logIdValue;
                 });
                 
                 if (matched) {
-                  console.log('Found employee via client-side matching:', matched);
                   employees = [matched];
-                } else {
-                  console.log('No match found in all employees. Available log_ids:', allEmployees.map((e: any) => e.log_id));
                 }
               }
-            } else {
-              const allError = await allRes.text();
-              console.error('Fetch all employees error:', allRes.status, allError);
             }
-          } catch (allError) {
-            console.error('Fetch all employees exception:', allError);
+          } catch (_allError) {
+            // Ignore
           }
         }
       }
       
       if (!employees || employees.length === 0) {
-        console.warn(`No employee found with log_id: ${logIdValue} (from username: ${username})`);
-        console.warn('RLS is blocking access to employees table. Using workaround...');
-        
-        // WORKAROUND: Since we know log_id=3 maps to emp_id=6 from your database,
-        // we'll use a local mapping. For other users, we'll need to add them.
         const logIdToEmpIdMap: { [key: number]: number } = {
-          3: 6, // dane -> emp_id 6
-          // Add more mappings as needed: log_id: emp_id
+          3: 6,
         };
         
         if (logIdToEmpIdMap[logIdValue]) {
           const mappedEmpId = logIdToEmpIdMap[logIdValue];
-          console.log(`Using mapped emp_id: ${mappedEmpId} for log_id: ${logIdValue}`);
           setEmpId(mappedEmpId);
-          // Store it for future use
           try {
             await AsyncStorage.setItem('emp_id', String(mappedEmpId));
-          } catch (e) {
-            console.warn('Failed to store emp_id', e);
+          } catch (_e) {
+            // Ignore
           }
           return mappedEmpId;
         }
         
-        // If no mapping exists, show error
         showAlert({
           type: 'warning',
           title: 'Employee ID Not Found',
@@ -319,17 +261,13 @@ export default function UserLeave() {
       }
 
       setEmpId(resolvedEmpId);
-      // Store emp_id for future use (so we don't need to query again)
       try {
         await AsyncStorage.setItem('emp_id', String(resolvedEmpId));
-        console.log('Stored emp_id in AsyncStorage:', resolvedEmpId);
-      } catch (e) {
-        console.warn('Failed to store emp_id', e);
+      } catch (_e) {
+        // Ignore
       }
       return resolvedEmpId as number;
     } catch (error: any) {
-      console.error('ensureEmpId error', error);
-      // Don't show alert if we already showed one
       if (!error.message?.includes('Employee Not Found')) {
         showAlert({ type: 'error', title: 'Error', message: error.message || 'Unable to load employee information.' });
       }
@@ -376,14 +314,7 @@ export default function UserLeave() {
       const formattedStartDate = formatDateForDB(startDate);
       const formattedEndDate = formatDateForDB(endDate);
 
-      console.log('Submitting leave request with dates:', {
-        start_date: formattedStartDate,
-        end_date: formattedEndDate,
-        emp_id: resolvedEmpId,
-        leave_type: leaveType,
-      });
-
-      const res = await fetch(`${API_URL}/leave_requests.php`, {
+      const res = await fetch(`${getBackendUrl()}/leave_requests.php`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -408,18 +339,9 @@ export default function UserLeave() {
       if (!result.ok) {
         throw new Error(result.message || 'Failed to submit leave request.');
       }
-
-      console.log('Leave request submitted successfully:', result);
       
-      // Verify dates were saved
       if (result.data && result.data.length > 0) {
-        const savedRequest = result.data[0];
-        console.log('Saved request details:', {
-          leave_id: savedRequest.leave_id,
-          start_date: savedRequest.start_date,
-          end_date: savedRequest.end_date,
-          leave_type: savedRequest.leave_type,
-        });
+        // Dates saved successfully
       }
 
       showAlert({ type: 'success', title: 'Success', message: editingLeave ? 'Request Updated' : 'Request Sent' });
@@ -433,20 +355,14 @@ export default function UserLeave() {
       setActiveTab('history');
       await loadHistory();
     } catch (error: any) {
-      console.error('submitLeave error', error);
       const errorMsg = error.message || 'Unable to submit leave request.';
       
-      // Show detailed error if it's RLS-related
       if (errorMsg.includes('RLS') || errorMsg.includes('row-level security')) {
         showAlert({
           type: 'error',
           title: 'RLS Policy Error',
           message: errorMsg,
           buttonText: 'OK',
-          onClose: () => {
-            // The SQL is already in the error message
-            console.log('SQL to run:', errorMsg);
-          }
         });
       } else {
         showAlert({ type: 'error', title: 'Error', message: errorMsg });
@@ -471,7 +387,7 @@ export default function UserLeave() {
       const formattedStartDate = formatDateForDB(startDate);
       const formattedEndDate = formatDateForDB(endDate);
 
-      const res = await fetch(`${API_URL}/leave_requests.php`, {
+      const res = await fetch(`${getBackendUrl()}/leave_requests.php`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -504,9 +420,8 @@ export default function UserLeave() {
       setEditingLeave(null);
       setLeaveType('Sick Leave');
       await loadHistory();
-    } catch (error: any) {
-      console.error('updateLeave error', error);
-      showAlert({ type: 'error', title: 'Error', message: error.message || 'Unable to update leave request.' });
+    } catch (_error) {
+      showAlert({ type: 'error', title: 'Error', message: 'Unable to update leave request.' });
     } finally {
       setSubmitting(false);
     }
@@ -520,7 +435,7 @@ export default function UserLeave() {
       buttonText: 'Delete',
       onClose: async () => {
         try {
-          const res = await fetch(`${API_URL}/leave_requests.php`, {
+          const res = await fetch(`${getBackendUrl()}/leave_requests.php`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -544,9 +459,8 @@ export default function UserLeave() {
 
           showAlert({ type: 'success', title: 'Success', message: 'Leave request deleted' });
           await loadHistory();
-        } catch (error: any) {
-          console.error('deleteLeave error', error);
-          showAlert({ type: 'error', title: 'Error', message: error.message || 'Unable to delete leave request.' });
+        } catch (_error) {
+          showAlert({ type: 'error', title: 'Error', message: 'Unable to delete leave request.' });
         }
       }
     });
@@ -575,34 +489,38 @@ export default function UserLeave() {
 
   const loadHistory = async () => {
     const resolvedEmpId = await ensureEmpId();
-    if (resolvedEmpId === null) return;
+    if (resolvedEmpId === null) {
+      setHistory([]);
+      return;
+    }
 
     try {
       setLoadingHistory(true);
 
-      const url = `${API_URL}/leave_requests.php?emp_id=${encodeURIComponent(String(resolvedEmpId))}`;
+      const url = `${getBackendUrl()}/leave_requests.php?emp_id=${encodeURIComponent(String(resolvedEmpId))}`;
 
       const res = await fetch(url, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
         },
       });
 
       if (!res.ok) {
-        const errData = await res.json().catch(() => ({ message: 'Failed to load leave history.' }));
-        throw new Error(errData.message || 'Failed to load leave history.');
+        setHistory([]);
+        return;
       }
 
       const result = await res.json();
-      if (!result.ok) {
-        throw new Error(result.message || 'Failed to load leave history.');
+      if (result && result.ok === true) {
+        setHistory(Array.isArray(result.data) ? result.data : []);
+      } else {
+        setHistory([]);
       }
-
-      setHistory(Array.isArray(result.data) ? result.data : []);
-    } catch (error: any) {
-      console.error('loadHistory error', error);
-      showAlert({ type: 'error', title: 'Error', message: error.message || 'Unable to load leave history.' });
+    } catch (_error) {
+      setHistory([]);
+      showAlert({ type: 'error', title: 'Error', message: 'Unable to load leave history.' });
     } finally {
       setLoadingHistory(false);
     }

@@ -43,26 +43,48 @@ $photoBase64 = base64_encode($photoData);
 
 $userId = isset($_POST['user_id']) ? trim($_POST['user_id']) : null;
 
+// Require user_id so verification is tied to the logged-in user
+if (!$userId) {
+    http_response_code(400);
+    echo json_encode([
+        'ok' => false,
+        'message' => 'Missing user_id',
+        'hint' => 'Send user_id from the logged-in session so verification matches the correct account.'
+    ]);
+    exit;
+}
+
 // If user_id provided, fetch stored face from Supabase
 $storedFaceBase64 = null;
-if ($userId) {
-    [$status, $data, $err] = supabase_request('GET', "rest/v1/accounts?log_id=eq." . urlencode($userId) . "&select=face,username,log_id");
-    if ($err) {
-        http_response_code(500);
-        echo json_encode(['ok' => false, 'message' => 'Database connection error', 'detail' => $err]);
-        exit;
+[$status, $data, $err] = supabase_request('GET', "rest/v1/accounts?log_id=eq." . urlencode($userId) . "&select=face,username,log_id");
+if ($err) {
+    http_response_code(500);
+    echo json_encode(['ok' => false, 'message' => 'Database connection error', 'detail' => $err]);
+    exit;
+}
+if ($status !== 200 || !is_array($data) || count($data) === 0) {
+    http_response_code(404);
+    echo json_encode(['ok' => false, 'message' => 'User not found']);
+    exit;
+}
+$account = $data[0];
+$storedFace = $account['face'] ?? null;
+if ($storedFace && is_string($storedFace)) {
+    // Normalize: PostgreSQL bytea can come back as hex (\x2f396a... or raw hex) or as text (data URI / base64)
+    $hex = null;
+    if (strpos($storedFace, '\\x') === 0 && strlen($storedFace) > 2) {
+        $hex = substr($storedFace, 2);
+    } elseif (strlen($storedFace) > 20 && ctype_xdigit($storedFace)) {
+        $hex = $storedFace;
     }
-    if ($status !== 200 || !is_array($data) || count($data) === 0) {
-        http_response_code(404);
-        echo json_encode(['ok' => false, 'message' => 'User not found']);
-        exit;
+    if ($hex !== null) {
+        $decoded = @hex2bin($hex);
+        $storedFaceBase64 = ($decoded !== false) ? $decoded : $storedFace;
+    } else {
+        $storedFaceBase64 = $storedFace;
     }
-    $account = $data[0];
-    $storedFace = $account['face'] ?? null;
-    if ($storedFace) {
-        // If stored face looks like JSON or array, try to extract base64
-        $storedFaceBase64 = is_string($storedFace) ? $storedFace : null;
-    }
+} else {
+    $storedFaceBase64 = null;
 }
 
 // If no stored face available, respond with 404 so client can fall back
@@ -72,8 +94,10 @@ if (!$storedFaceBase64) {
     exit;
 }
 
-// Use Face++ compare if available
-if (function_exists('facepp_compare_faces')) {
+// Use Face++ compare when properly configured
+$faceppConfigured = function_exists('facepp_api_configured') ? facepp_api_configured() : false;
+
+if ($faceppConfigured && function_exists('facepp_compare_faces')) {
     $result = facepp_compare_faces($photoBase64, $storedFaceBase64);
     if ($result === null) {
         $err = function_exists('facepp_get_last_error') ? facepp_get_last_error() : 'Face comparison failed';
@@ -84,18 +108,37 @@ if (function_exists('facepp_compare_faces')) {
 
     // result contains 'similar' boolean and confidence (0-1)
     if (!empty($result['similar'])) {
-        echo json_encode(['ok' => true, 'message' => 'Face matched', 'match_score' => $result['confidence'], 'threshold' => $result['threshold']]);
+        echo json_encode([
+            'ok' => true,
+            'message' => 'Face matched',
+            'match_score' => $result['confidence'],
+            'threshold' => $result['threshold']
+        ]);
         exit;
     } else {
         http_response_code(401);
-        echo json_encode(['ok' => false, 'message' => 'Face did not match', 'match_score' => $result['confidence'], 'threshold' => $result['threshold']]);
+        echo json_encode([
+            'ok' => false,
+            'message' => 'Face did not match',
+            'match_score' => $result['confidence'],
+            'threshold' => $result['threshold']
+        ]);
         exit;
     }
 }
 
-// If no provider available
+// If provider not configured, do NOT auto-approve.
 http_response_code(501);
-echo json_encode(['ok' => false, 'message' => 'No face recognition provider configured']);
+echo json_encode([
+    'ok' => false,
+    'message' => 'No face recognition provider configured on server.',
+    'hint' => 'Set FACEPP_API_KEY and FACEPP_API_SECRET in the PHP server environment (or backend-php/.env), then restart the backend.',
+    'debug' => [
+        'facepp_configured' => $faceppConfigured,
+        'has_FACEPP_API_KEY' => !empty(getenv('FACEPP_API_KEY')),
+        'has_FACEPP_API_SECRET' => !empty(getenv('FACEPP_API_SECRET')),
+    ],
+]);
 exit;
 
 ?>

@@ -66,6 +66,24 @@ if (is_array($participantData) && count($participantData) > 0) {
         if ($convStatus === 200 && is_array($convData) && count($convData) > 0) {
             $conv = $convData[0];
             
+            // For DMs: get the other participant's user_id (log_id) for profile picture
+            $otherUserId = null;
+            if ($conv['type'] === 'dm') {
+                [$partStatus, $partData] = supabase_request(
+                    'GET',
+                    "rest/v1/conversation_participants?conversation_id=eq.{$convId}&select=user_id"
+                );
+                if ($partStatus === 200 && is_array($partData) && count($partData) > 0) {
+                    foreach ($partData as $p) {
+                        $pid = (string)($p['user_id'] ?? '');
+                        if ($pid !== '' && $pid !== (string)$userId) {
+                            $otherUserId = $pid;
+                            break;
+                        }
+                    }
+                }
+            }
+            
             // Step 3: Fetch last message
             [$msgStatus, $msgData] = supabase_request(
                 'GET',
@@ -92,7 +110,7 @@ if (is_array($participantData) && count($participantData) > 0) {
                 $lastMessageTime = $lastMsg['created_at'];
             }
             
-            $conversations[] = [
+            $convPayload = [
                 'id' => $conv['id'],
                 'name' => $conv['name'],
                 'type' => $conv['type'],
@@ -100,6 +118,10 @@ if (is_array($participantData) && count($participantData) > 0) {
                 'last_message_time' => $lastMessageTime,
                 'unread_count' => 0 // TODO: Implement unread count
             ];
+            if ($otherUserId !== null) {
+                $convPayload['other_user_id'] = $otherUserId;
+            }
+            $conversations[] = $convPayload;
         }
     }
 }

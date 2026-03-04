@@ -34,10 +34,10 @@ if (empty($conversationId)) {
     exit;
 }
 
-// Fetch messages from Supabase
+// Fetch messages from Supabase (exclude soft-deleted)
 [$status, $data, $err] = supabase_request(
     'GET',
-    "rest/v1/messages?conversation_id=eq.{$conversationId}&order=created_at.asc&limit={$limit}&offset={$offset}&select=*"
+    "rest/v1/messages?conversation_id=eq.{$conversationId}&is_deleted=eq.false&order=created_at.asc&limit={$limit}&offset={$offset}&select=*"
 );
 
 if ($err) {

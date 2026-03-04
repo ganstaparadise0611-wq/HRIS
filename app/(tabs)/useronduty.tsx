@@ -1,17 +1,16 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import * as DocumentPicker from 'expo-document-picker';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { Alert, Modal, Platform, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import CustomAlert from '../../components/CustomAlert';
 import { useCustomAlert } from '../../hooks/useCustomAlert';
+import { getBackendUrl, SUPABASE_URL, SUPABASE_ANON_KEY } from '../../constants/backend-config';
+import { recheckNetwork } from '../../constants/network-detector';
 import { useTheme } from './ThemeContext';
-
-const SUPABASE_URL = 'https://cgyqweheceduyrpxqvwd.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_MJmY9d0yFuPp6KtQ62stGw_lFHMnNAK';
-const PHP_BACKEND_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.15.132:8000';
 
 const ON_DUTY_TYPES = [
   'Sales Support',
@@ -53,6 +52,10 @@ export default function UserOnDuty() {
     loadUserInfo();
   }, []);
 
+  useEffect(() => {
+    recheckNetwork().catch(() => {});
+  }, []);
+
   const loadUserInfo = async () => {
     try {
       const userId = await AsyncStorage.getItem('userId');
@@ -78,24 +81,44 @@ export default function UserOnDuty() {
           }
         }
       }
-    } catch (error) {
-      console.error('Error loading user info:', error);
+    } catch (_error) {
+      // Fallback to username if employees fetch fails
+      try {
+        const username = await AsyncStorage.getItem('username');
+        if (username) setRequestFor(username);
+      } catch (_e) {}
     } finally {
       setLoading(false);
     }
   };
 
   const handleUploadAttachment = async () => {
-    // TODO: Implement file picker when expo-document-picker is installed
-    // For now, show a placeholder
-    showAlert({
-      type: 'info',
-      title: 'Attachment Upload',
-      message: 'File upload feature will be available soon. You can proceed without attachment.'
-    });
-    // Placeholder - set a dummy attachment name
-    setAttachmentName('document.pdf');
-    setAttachment('placeholder');
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['image/*', 'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', '*/*'],
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+
+      if (result.canceled) {
+        return;
+      }
+
+      const file = result.assets[0];
+      setAttachment(file.uri);
+      setAttachmentName(file.name || 'document');
+      showAlert({
+        type: 'success',
+        title: 'Attachment',
+        message: `"${file.name}" selected. You can change it by tapping Upload again.`,
+      });
+    } catch (err) {
+      showAlert({
+        type: 'error',
+        title: 'Attachment',
+        message: 'Could not open file picker. You can proceed without an attachment.',
+      });
+    }
   };
 
   const formatDate = (date: Date): string => {
@@ -153,7 +176,7 @@ export default function UserOnDuty() {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 30000);
 
-      const response = await fetch(`${PHP_BACKEND_URL}/on_duty.php`, {
+      const response = await fetch(`${getBackendUrl()}/on_duty.php`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -170,8 +193,7 @@ export default function UserOnDuty() {
       try {
         const text = await response.text();
         result = text ? JSON.parse(text) : {};
-      } catch (parseError) {
-        console.error('[On Duty] Failed to parse response:', parseError);
+      } catch (_parseError) {
         throw new Error(`Server returned invalid response. Status: ${response.status}`);
       }
 
@@ -200,8 +222,6 @@ export default function UserOnDuty() {
         }
       });
     } catch (error: any) {
-      console.error('Error submitting on duty request:', error);
-      
       let errorMessage = 'Failed to submit request. Please try again.';
       
       if (error.name === 'AbortError' || error.message?.includes('Aborted')) {
@@ -253,7 +273,7 @@ export default function UserOnDuty() {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 30000);
 
-      const response = await fetch(`${PHP_BACKEND_URL}/on_duty.php`, {
+      const response = await fetch(`${getBackendUrl()}/on_duty.php`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -270,8 +290,7 @@ export default function UserOnDuty() {
       try {
         const text = await response.text();
         result = text ? JSON.parse(text) : {};
-      } catch (parseError) {
-        console.error('[On Duty] Failed to parse response:', parseError);
+      } catch (_parseError) {
         throw new Error(`Server returned invalid response. Status: ${response.status}`);
       }
 
@@ -291,8 +310,6 @@ export default function UserOnDuty() {
         }
       });
     } catch (error: any) {
-      console.error('Error saving draft:', error);
-      
       let errorMessage = 'Failed to save draft. Please try again.';
       
       if (error.name === 'AbortError' || error.message?.includes('Aborted')) {
@@ -394,11 +411,23 @@ export default function UserOnDuty() {
               >
                 <Ionicons name="cloud-upload-outline" size={20} color="#F27121" />
                 <Text style={styles.uploadButtonText}>
-                  {attachmentName || 'UPLOAD'}
+                  {attachmentName || 'TAP TO PICK FILE'}
                 </Text>
               </TouchableOpacity>
               {attachmentName ? (
-                <Text style={[styles.attachmentName, dyn.sub]}>{attachmentName}</Text>
+                <View style={styles.attachmentRow}>
+                  <Text style={[styles.attachmentName, dyn.sub]} numberOfLines={1}>{attachmentName}</Text>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setAttachment(null);
+                      setAttachmentName('');
+                    }}
+                    style={styles.removeAttachmentButton}
+                  >
+                    <Ionicons name="close-circle" size={22} color="#E74C3C" />
+                    <Text style={styles.removeAttachmentText}>Remove</Text>
+                  </TouchableOpacity>
+                </View>
               ) : null}
             </View>
 
@@ -792,8 +821,24 @@ const styles = StyleSheet.create({
   },
   attachmentName: {
     fontSize: 12,
-    marginTop: 5,
+    flex: 1,
     fontStyle: 'italic',
+  },
+  attachmentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    gap: 8,
+  },
+  removeAttachmentButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  removeAttachmentText: {
+    fontSize: 12,
+    color: '#E74C3C',
+    fontWeight: '600',
   },
   nextButton: {
     backgroundColor: '#F27121',

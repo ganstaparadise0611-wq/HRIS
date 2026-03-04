@@ -2,22 +2,45 @@
 // Supabase "database connection" helper file.
 // This file only contains the configuration and helper functions to talk to Supabase.
 
+// Load backend-php/.env so Face++ keys work even when PHP is started without start-system.ps1
+$envFile = __DIR__ . '/../.env';
+if (is_file($envFile) && is_readable($envFile)) {
+    $lines = @file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+    if ($lines) {
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if ($line === '' || $line[0] === '#') continue;
+            $eq = strpos($line, '=');
+            if ($eq > 0) {
+                $k = trim(substr($line, 0, $eq));
+                $v = trim(substr($line, $eq + 1));
+                if (($v !== '' && ($v[0] === '"' || $v[0] === "'")) && substr($v, -1) === $v[0]) {
+                    $v = substr($v, 1, -1);
+                }
+                if ($k !== '') putenv("$k=$v");
+            }
+        }
+    }
+}
+
 // --- Supabase config (from your project) ---
 define('SUPABASE_URL', 'https://cgyqweheceduyrpxqvwd.supabase.co');
 
-// IMPORTANT: never commit secrets.
-// Set one of these environment variables in your PHP runtime:
-// - SUPABASE_SERVICE_ROLE_KEY (recommended for server-side bypassing RLS)
-// - SUPABASE_ANON_KEY (fallback; may fail for protected tables)
-define('SUPABASE_API_KEY', getenv('SUPABASE_SERVICE_ROLE_KEY') ?: (getenv('SUPABASE_ANON_KEY') ?: ''));
+// Fallback anon key (publishable; safe to commit). This lets local dev work
+// even when your PHP runtime doesn't have environment variables configured.
+define('SUPABASE_PUBLIC_ANON_KEY', 'sb_publishable_MJmY9d0yFuPp6KtQ62stGw_lFHMnNAK');
+
+// Prefer service role key (server-side) when available, otherwise anon key.
+// IMPORTANT: never commit service role keys.
+define(
+    'SUPABASE_API_KEY',
+    getenv('SUPABASE_SERVICE_ROLE_KEY')
+        ?: (getenv('SUPABASE_ANON_KEY') ?: SUPABASE_PUBLIC_ANON_KEY)
+);
 
 // --- Supabase helper functions (inline) ---
 function supabase_request(string $method, string $path, ?array $body = null, array $extraHeaders = []): array
 {
-    if (!SUPABASE_API_KEY) {
-        return [0, null, 'Missing SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_ANON_KEY) environment variable'];
-    }
-
     $url = rtrim(SUPABASE_URL, '/') . '/' . ltrim($path, '/');
 
     // Use curl if available, otherwise fallback to file_get_contents

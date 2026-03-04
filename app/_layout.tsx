@@ -16,9 +16,6 @@ export default function RootLayout() {
 
   // Initialize network detection on app startup
   useEffect(() => {
-    console.log('[App] Installing global fetch wrapper and initializing network detection...');
-
-    // Wrap global fetch with retry + exponential backoff and a network re-check on failure
     try {
       const originalFetch = globalThis.fetch;
       if (originalFetch && !globalThis.__fetchWrapped) {
@@ -47,16 +44,13 @@ export default function RootLayout() {
                 if (res && res.status >= 500 && attempt < maxAttempts) {
                   const jitter = Math.floor(Math.random() * 200);
                   const wait = baseDelay * Math.pow(2, attempt - 1) + jitter;
-                  console.warn(`[fetch] Server error ${res.status}, retrying in ${wait}ms (attempt ${attempt})`);
                   await new Promise(r => setTimeout(r, wait));
                   continue;
                 }
                 return res;
               } catch (err) {
                 clearTimeout(timeoutId);
-                console.warn('[fetch] Network/error on attempt', attempt, err);
-                // Fire-and-forget network recheck (don't await) to avoid blocking retries
-                recheckNetwork().catch(e => console.warn('[fetch] recheckNetwork failed:', e));
+                recheckNetwork().catch(() => {});
 
                 if (attempt < maxAttempts) {
                   const jitter = Math.floor(Math.random() * 200);
@@ -73,14 +67,12 @@ export default function RootLayout() {
                 if (res && res.status >= 500 && attempt < maxAttempts) {
                   const jitter = Math.floor(Math.random() * 200);
                   const wait = baseDelay * Math.pow(2, attempt - 1) + jitter;
-                  console.warn(`[fetch] Server error ${res.status}, retrying in ${wait}ms (attempt ${attempt})`);
                   await new Promise(r => setTimeout(r, wait));
                   continue;
                 }
                 return res;
               } catch (err) {
-                console.warn('[fetch] Network/error on attempt', attempt, err);
-                recheckNetwork().catch(e => console.warn('[fetch] recheckNetwork failed:', e));
+                recheckNetwork().catch(() => {});
                 if (attempt < maxAttempts) {
                   const jitter = Math.floor(Math.random() * 200);
                   const wait = baseDelay * Math.pow(2, attempt - 1) + jitter;
@@ -95,14 +87,14 @@ export default function RootLayout() {
           return originalFetch(input as any, init as any);
         };
       }
-    } catch (wrapErr) {
-      console.error('[App] Failed to wrap fetch:', wrapErr);
+    } catch (_wrapErr) {
+      // Fetch wrap failed; avoid logging to reduce console noise on mobile
     }
 
-    initializeNetwork().then(url => {
-      console.log('[App] Network initialized with URL:', url);
-    }).catch(err => {
-      console.error('[App] Network initialization error:', err);
+    initializeNetwork().then(() => {
+      // Network ready
+    }).catch(() => {
+      // Init failed; avoid logging to reduce console noise on mobile
     });
   }, []);
 

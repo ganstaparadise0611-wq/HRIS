@@ -36,6 +36,7 @@ if (!is_array($body)) {
 
 $conversationId = trim((string)($body['conversation_id'] ?? ''));
 $userId = trim((string)($body['user_id'] ?? ''));
+$inviterId = trim((string)($body['inviter_id'] ?? ''));
 
 if ($conversationId === '' || $userId === '') {
     http_response_code(400);
@@ -82,8 +83,37 @@ if ($status !== 201) {
     exit;
 }
 
+// Post a system message so the app can show "Chester added you to the group" / "Chester added John to the group"
+$systemMessagePosted = false;
+if ($inviterId !== '') {
+    $newMemberUsername = 'Someone';
+    [$accStatus, $accData] = supabase_request(
+        'GET',
+        "rest/v1/accounts?log_id=eq.{$userId}&select=username"
+    );
+    if ($accStatus === 200 && is_array($accData) && count($accData) > 0) {
+        $newMemberUsername = $accData[0]['username'] ?? $newMemberUsername;
+    }
+    $systemContent = "added __{$userId}__|{$newMemberUsername} to the channel";
+    [$msgStatus, $msgResult, $msgErr] = supabase_request(
+        'POST',
+        'rest/v1/messages',
+        [
+            'conversation_id' => (int)$conversationId,
+            'sender_id' => (int)$inviterId,
+            'content' => $systemContent,
+        ],
+        ['Prefer: return=representation']
+    );
+    if ($msgErr) {
+        error_log("Add member: system message failed: " . $msgErr);
+    }
+    $systemMessagePosted = ($msgStatus === 201);
+}
+
 echo json_encode([
     'ok' => true,
     'message' => 'Member added successfully',
-    'participant' => is_array($data) && count($data) > 0 ? $data[0] : null
+    'participant' => is_array($data) && count($data) > 0 ? $data[0] : null,
+    'system_message_posted' => $systemMessagePosted,
 ]);

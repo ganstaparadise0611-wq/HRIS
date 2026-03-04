@@ -18,12 +18,13 @@ async function testConnectivity(url: string, timeout: number = 3000): Promise<bo
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
-    
-    const response = await fetch(`${url}/test.php`, {
+    const fullUrl = `${url.replace(/\/$/, '')}/test.php`;
+    const response = await fetch(fullUrl, {
       method: 'GET',
       signal: controller.signal,
       headers: {
         'Cache-Control': 'no-cache',
+        ...(url.startsWith('https://') ? { 'ngrok-skip-browser-warning': 'true' } : {}),
       },
     });
     
@@ -45,7 +46,7 @@ export async function detectBestNetwork(): Promise<string> {
   isChecking = true;
   
   try {
-    const { preferred, local, ngrok } = NETWORK_CONFIG;
+    const { preferred, local, ngrok, custom } = NETWORK_CONFIG;
     
     // If user forced a specific mode, use it
     if (preferred === 'local') {
@@ -59,8 +60,14 @@ export async function detectBestNetwork(): Promise<string> {
       lastSuccessfulUrl = ngrok;
       return ngrok;
     }
+
+    if (preferred === 'custom' && custom) {
+      currentBackendUrl = custom;
+      lastSuccessfulUrl = custom;
+      return custom;
+    }
     
-    // Auto mode: try several likely local hosts quickly, then fallback to ngrok
+    // Auto mode: try local first, then custom tunnel, then ngrok
     const candidates = [local, 'http://127.0.0.1:8000', 'http://localhost:8000', 'http://10.0.2.2:8000'];
     const tried = new Set<string>();
 
@@ -82,6 +89,18 @@ export async function detectBestNetwork(): Promise<string> {
         }
       } catch (e) {
         console.warn('[Network] Candidate test error for', candidate, e);
+      }
+    }
+
+    // Try custom tunnel (localtunnel, Cloudflare, fxtun, etc.) before ngrok
+    if (custom) {
+      console.log('[Network] Trying custom tunnel:', custom);
+      const customWorks = await testConnectivity(custom, 5000);
+      if (customWorks) {
+        console.log('[Network] ✓ Custom tunnel connected:', custom);
+        currentBackendUrl = custom;
+        lastSuccessfulUrl = custom;
+        return custom;
       }
     }
 
@@ -125,8 +144,19 @@ export async function detectBestNetwork(): Promise<string> {
       lastSuccessfulUrl = ngrok;
       return ngrok;
     }
+
+    // Try custom one more time if ngrok failed (e.g. bandwidth limit)
+    if (custom) {
+      const customWorks = await testConnectivity(custom, 5000);
+      if (customWorks) {
+        console.log('[Network] ✓ Custom tunnel connected (ngrok fallback):', custom);
+        currentBackendUrl = custom;
+        lastSuccessfulUrl = custom;
+        return custom;
+      }
+    }
     
-    // Both failed, use last successful or default to ngrok
+    // All failed, use last successful or default to local
     console.log('[Network] ⚠ Both networks unavailable, using last successful:', lastSuccessfulUrl);
     currentBackendUrl = lastSuccessfulUrl;
     return lastSuccessfulUrl;

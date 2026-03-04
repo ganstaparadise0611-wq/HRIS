@@ -205,11 +205,9 @@ function facepp_compare_faces(string $image1Base64, string $image2Base64): ?arra
     $confidence = $result['confidence'] ?? 0;
     $thresholds = $result['thresholds'] ?? [];
     
-    // Get the 1e-5 threshold (recommended for high security)
-    // 1e-3: For general use (looser matching)
-    // 1e-4: For moderate security
-    // 1e-5: For high security (stricter matching)
-    $threshold = $thresholds['1e-5'] ?? 70.0; // Default to 70 if not provided
+    // Use 1e-4 so same person (logged-in user) matches reliably; 1e-5 is too strict for attendance
+    // 1e-3: looser | 1e-4: moderate | 1e-5: strict (more false rejections)
+    $threshold = $thresholds['1e-4'] ?? ($thresholds['1e-5'] ?? 70.0);
     
     // Convert confidence to 0-1 scale for consistency
     $confidenceNormalized = $confidence / 100.0;
