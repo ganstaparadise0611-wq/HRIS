@@ -40,6 +40,7 @@ export default function RootLayout() {
           <Stack.Screen name="request" />
           <Stack.Screen name="userattendance" />
           <Stack.Screen name="attendancehistory" />
+          <Stack.Screen name="userattendancecorrection" />
           <Stack.Screen name="useractivity" />
           <Stack.Screen name="userleave" />
           <Stack.Screen name="userchat" />

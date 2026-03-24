@@ -20,6 +20,13 @@ export default function RequestScreen() {
 
   const requestTiles = [
     {
+      label: 'Attendance Correction',
+      description: 'Fix missed clock-ins or incorrect logs.',
+      icon: 'time-outline' as const,
+      route: '/userattendancecorrection',
+      lib: Ionicons,
+    },
+    {
       label: 'Leave Request',
       description: 'Apply for vacation, sick leave, or other absences.',
       icon: 'calendar-outline' as const,
