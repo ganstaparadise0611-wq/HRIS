@@ -137,6 +137,15 @@ export default function UserDashboard() {
             >
               <Ionicons name="person-circle-outline" size={40} color="#F27121" />
             </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={styles.notificationButton}
+              onPress={() => router.push('/(tabs)/usernotifications' as any)}
+            >
+              <Ionicons name="notifications-outline" size={26} color={colors.text} />
+              <View style={styles.notificationBadge} />
+            </TouchableOpacity>
+
             <TouchableOpacity 
               style={styles.settingsButton}
               onPress={() => router.push('/usermenu')}
@@ -250,6 +259,8 @@ const styles = StyleSheet.create({
   subGreeting: { fontSize: 14 },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   profileButton: { padding: 5 },
+  notificationButton: { padding: 5, position: 'relative' },
+  notificationBadge: { position: 'absolute', top: 5, right: 5, backgroundColor: '#F27121', width: 8, height: 8, borderRadius: 4 },
   settingsButton: { padding: 5 },
   
   attendanceCard: { borderRadius: 15, padding: 20, marginBottom: 30, borderLeftWidth: 5, borderLeftColor: '#F27121', elevation: 3, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 5 },

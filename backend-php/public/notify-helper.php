@@ -143,6 +143,19 @@ function get_all_push_tokens(): array
  */
 function notify_users(array $userIds, string $title, string $body, array $data = []): void
 {
+    // INSERT NOTIFICATIONS INTO SUPABASE FOR IN-APP INTERFACE
+    $type = $data['type'] ?? 'general';
+    foreach ($userIds as $userId) {
+        $insertData = [
+            'user_id' => $userId,
+            'title'   => $title,
+            'message' => $body,
+            'type'    => $type,
+            'is_read' => false
+        ];
+        supabase_request('POST', 'rest/v1/notifications', $insertData);
+    }
+
     $tokens = get_push_tokens_for_users($userIds);
     if (!empty($tokens)) {
         send_expo_push($tokens, $title, $body, $data);
@@ -158,6 +171,23 @@ function notify_users(array $userIds, string $title, string $body, array $data =
  */
 function notify_all(string $title, string $body, array $data = []): void
 {
+    // Get all user IDs from the employees table to log the notification for everyone
+    [$status, $empData, $err] = supabase_request('GET', 'rest/v1/employees?select=log_id');
+    $type = $data['type'] ?? 'general';
+    
+    if ($status === 200 && is_array($empData)) {
+        foreach ($empData as $emp) {
+            $insertData = [
+                'user_id' => $emp['log_id'],
+                'title'   => $title,
+                'message' => $body,
+                'type'    => $type,
+                'is_read' => false
+            ];
+            supabase_request('POST', 'rest/v1/notifications', $insertData);
+        }
+    }
+
     $tokens = get_all_push_tokens();
     if (!empty($tokens)) {
         send_expo_push($tokens, $title, $body, $data);

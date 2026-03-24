@@ -9,6 +9,7 @@
 
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
 import { getBackendUrl } from './backend-config';
 
 // Lazily import native-only modules so they are never loaded on web
@@ -16,21 +17,27 @@ let Notifications: typeof import('expo-notifications') | null = null;
 let Device: typeof import('expo-device') | null = null;
 
 if (Platform.OS !== 'web') {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  Notifications = require('expo-notifications');
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  Device = require('expo-device');
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    Notifications = require('expo-notifications');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    Device = require('expo-device');
 
-  // Configure foreground notification presentation (native only)
-  Notifications!.setNotificationHandler({
-    handleNotification: async () => ({
-      shouldShowAlert: true,
-      shouldPlaySound: true,
-      shouldSetBadge: true,
-      shouldShowBanner: true,
-      shouldShowList: true,
-    }),
-  });
+    if (Notifications) {
+      // Configure foreground notification presentation (native only)
+      Notifications.setNotificationHandler({
+        handleNotification: async () => ({
+          shouldShowAlert: true,
+          shouldPlaySound: true,
+          shouldSetBadge: true,
+          shouldShowBanner: true,
+          shouldShowList: true,
+        }),
+      });
+    }
+  } catch (error) {
+    console.warn('[Push] Failed to load native modules (Skipping Push Notifications on Expo Go):', error);
+  }
 }
 
 /**
@@ -74,8 +81,24 @@ export async function registerForPushNotifications(): Promise<string | null> {
     return null;
   }
 
-  // Get the token
-  const tokenData = await Notifications.getExpoPushTokenAsync();
+  // Get the token safely
+  let tokenData;
+  try {
+    const projectId =
+      Constants?.expoConfig?.extra?.eas?.projectId;
+    
+    if (!projectId) {
+      console.warn('Project ID not found in app.json. Add it under expo.extra.eas.projectId');
+    }
+
+    tokenData = await Notifications.getExpoPushTokenAsync({
+      projectId: projectId || 'ae186e5c-2ef9-4807-acd5-564dd9b253d7',
+    });
+  } catch (error) {
+    console.error('[Push] Error getting push token:', error);
+    return null;
+  }
+  
   const token = tokenData.data;
 
   // Save token to AsyncStorage for quick access
