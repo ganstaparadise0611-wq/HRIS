@@ -479,7 +479,9 @@ export default function UserAttendance() {
           <Ionicons name="arrow-back" size={24} color={colors.text} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, dyn.text]}>Attendance</Text>
-        <View style={{width: 44}} />
+        <TouchableOpacity onPress={() => router.push('/(tabs)/attendancehistory' as any)} style={{padding: 10}}>
+          <MaterialCommunityIcons name="history" size={26} color="#F27121" />
+        </TouchableOpacity>
       </View>
 
       {/* CENTER */}

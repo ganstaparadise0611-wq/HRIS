@@ -126,8 +126,7 @@ export default function UserChat() {
     
     try {
       setLoadingChats(true);
-      // Wait for network detection to finish so we use the correct URL
-      await recheckNetwork().catch(() => {});
+      // Removed await recheckNetwork() to eliminate artificial delays (5+ seconds sometimes)
       const response = await fetch(`${getBackendUrl()}/get-conversations.php?user_id=${currentUserId}`, {
         headers: { 'ngrok-skip-browser-warning': 'true' }
       });
