@@ -1,11 +1,24 @@
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AVPlaybackStatus, ResizeMode, Video } from 'expo-av';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
-import { Video } from 'expo-av';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import {
+    ActivityIndicator,
+    Alert,
+    Image,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { SUPABASE_ANON_KEY, SUPABASE_URL, getBackendUrl } from '../../constants/backend-config';
 import { useTheme } from './ThemeContext';
 
 type FeedKind = 'post' | 'announcement' | 'activity';
@@ -25,6 +38,121 @@ interface FeedPost {
   employees?: { name?: string | null } | null;
 }
 
+function guessFileExtFromMime(mime: string | null | undefined) {
+  const m = (mime || '').toLowerCase();
+  if (m === 'image/png') return 'png';
+  if (m === 'image/webp') return 'webp';
+  if (m === 'image/heic' || m === 'image/heif') return 'heic';
+  if (m === 'video/quicktime') return 'mov';
+  if (m.startsWith('video/')) return 'mp4';
+  if (m.startsWith('image/')) return 'jpg';
+  return 'bin';
+}
+
+async function uploadToSupabasePublicBucket(params: {
+  bucket: string;
+  fileUri: string;
+  fileName: string;
+  contentType: string;
+}) {
+  const { bucket, fileUri, fileName, contentType } = params;
+  const uploadUrl = `${SUPABASE_URL}/storage/v1/object/${bucket}/${fileName}`;
+
+  const uploadRes = await FileSystem.uploadAsync(uploadUrl, fileUri, {
+    httpMethod: 'POST',
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      'Content-Type': contentType,
+      'x-upsert': 'true',
+    },
+    uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+  });
+
+  if (uploadRes.status < 200 || uploadRes.status >= 300) {
+    throw new Error(
+      `Failed to upload file (${uploadRes.status}): ${uploadRes.body?.slice(0, 120)}`
+    );
+  }
+
+  return `${SUPABASE_URL}/storage/v1/object/public/${bucket}/${fileName}`;
+}
+
+// Video Player Component with loading state
+function VideoPlayer({ videoUrl, postId }: { videoUrl: string; postId: number }) {
+  const [shouldLoad, setShouldLoad] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [hasError, setHasError] = useState(false);
+  const videoRef = useRef<Video>(null);
+
+  // Cleanup: pause and unload video when component unmounts
+  useEffect(() => {
+    return () => {
+      if (videoRef.current) {
+        videoRef.current.pauseAsync().catch(() => {});
+        videoRef.current.unloadAsync().catch(() => {});
+      }
+    };
+  }, []);
+
+  return (
+    <View style={styles.feedVideoWrapper}>
+      {!shouldLoad && !hasError && (
+        <TouchableOpacity
+          style={styles.videoTapToLoadOverlay}
+          onPress={() => setShouldLoad(true)}
+          activeOpacity={0.85}
+        >
+          <Ionicons name="play-circle-outline" size={56} color="#FFF" />
+          <Text style={styles.videoLoadingText}>Tap to load video</Text>
+        </TouchableOpacity>
+      )}
+      {shouldLoad && isLoading && !hasError && (
+        <View style={styles.videoLoadingOverlay}>
+          <ActivityIndicator size="large" color="#F27121" />
+          <Text style={styles.videoLoadingText}>Loading video...</Text>
+        </View>
+      )}
+      {hasError && (
+        <View style={styles.videoErrorOverlay}>
+          <Ionicons name="alert-circle-outline" size={48} color="#999" />
+          <Text style={styles.videoErrorText}>Video unavailable</Text>
+        </View>
+      )}
+      {shouldLoad && (
+        <Video
+          ref={videoRef}
+          source={{ uri: videoUrl }}
+          style={styles.feedVideo}
+          useNativeControls
+          resizeMode={ResizeMode.CONTAIN}
+          isMuted={false}
+          onLoadStart={() => {
+            setIsLoading(true);
+            setHasError(false);
+          }}
+          onReadyForDisplay={() => {
+            setIsLoading(false);
+          }}
+          onLoad={() => {
+            setIsLoading(false);
+          }}
+          onError={(error) => {
+            console.log('Video load error for post', postId, ':', error);
+            setIsLoading(false);
+            setHasError(true);
+          }}
+          onPlaybackStatusUpdate={(status: AVPlaybackStatus) => {
+            if (status.isLoaded && isLoading) {
+              setIsLoading(false);
+            }
+          }}
+        />
+      )}
+    </View>
+  );
+}
+
 export default function FeedsScreen() {
   const router = useRouter();
   const { colors, theme } = useTheme();
@@ -37,7 +165,7 @@ export default function FeedsScreen() {
   const [newIsAchievement, setNewIsAchievement] = useState(false);
   const [posting, setPosting] = useState(false);
   const [imagePreviewUri, setImagePreviewUri] = useState<string | null>(null);
-  const [imageBase64, setImageBase64] = useState<string | null>(null);
+  const [imageMimeType, setImageMimeType] = useState<string | null>(null);
   const [pickingImage, setPickingImage] = useState(false);
   const [videoUri, setVideoUri] = useState<string | null>(null);
   const [videoDurationSeconds, setVideoDurationSeconds] = useState<number | null>(null);
@@ -51,12 +179,76 @@ export default function FeedsScreen() {
     border: { borderColor: colors.border },
   };
 
+  // Load shared feeds from Supabase so all users see the same posts
   useEffect(() => {
-    // Public repo build: feeds are local-only (no Supabase / external DB)
-    setFeeds([]);
-    setError(null);
-    setLoading(false);
+    const loadFeeds = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const base = `${SUPABASE_URL}/rest/v1/feeds_posts`;
+        const select =
+          'post_id,emp_id,caption,image_url,is_achievement,kind,created_at,activity_id,media_type,video_url,video_duration_seconds,employees(name)';
+        // Only show posts that were created via the Feeds interface itself
+        const query =
+          `${base}?select=${encodeURIComponent(select)}` +
+          `&kind=in.(post,announcement)` +
+          `&order=created_at.desc`;
+
+        const res = await fetch(query, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          },
+        });
+
+        if (!res.ok) {
+          const txt = await res.text();
+          throw new Error(`Failed to load feeds (${res.status}): ${txt.slice(0, 120)}`);
+        }
+
+        const data = (await res.json()) as FeedPost[];
+        setFeeds(data || []);
+      } catch (_e) {
+        setError('Could not load feeds right now.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadFeeds();
   }, []);
+
+  const getImageSource = (imageUrl: string | null | undefined) => {
+    if (!imageUrl) return null;
+    
+    const raw = imageUrl.trim();
+    
+    // Valid URLs
+    if (raw.startsWith('https://')) return raw;
+    if (raw.startsWith('data:')) return raw;
+    // Stored as Supabase Storage object path (older/alternate format)
+    if (raw.startsWith('Posts/')) {
+      return `${SUPABASE_URL}/storage/v1/object/public/${raw}`;
+    }
+    
+    // HTTP URLs - might not work on different networks
+    if (raw.startsWith('http://')) {
+      console.warn('HTTP URL found in feeds - may not work on different networks:', raw.slice(0, 50));
+      return raw;
+    }
+    
+    // Local file paths - won't work across devices
+    if (raw.startsWith('file://')) {
+      console.warn('Local file path found - cannot display across devices:', raw.slice(0, 50));
+      return null; // Don't show broken images
+    }
+    
+    // Assume raw base64
+    return `data:image/jpeg;base64,${raw}`;
+  };
 
   const formatWhen = (iso: string | null | undefined) => {
     if (!iso) return '';
@@ -98,15 +290,15 @@ export default function FeedsScreen() {
       }
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
-        base64: true,
-        quality: 0.7,
+        base64: false,
+        quality: 0.8,
       });
       if (result.canceled || !result.assets || result.assets.length === 0) {
         return;
       }
       const asset = result.assets[0];
       setImagePreviewUri(asset.uri ?? null);
-      setImageBase64(asset.base64 ?? null);
+      setImageMimeType((asset as any)?.mimeType ?? null);
     } catch (e) {
       Alert.alert('Error', 'Could not open photo library.');
     } finally {
@@ -119,7 +311,7 @@ export default function FeedsScreen() {
       setPickingVideo(true);
       // If switching to video, clear any selected image
       setImagePreviewUri(null);
-      setImageBase64(null);
+      setImageMimeType(null);
       const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!perm.granted) {
         Alert.alert('Permission needed', 'Please allow photo/video access to attach a video.');
@@ -127,12 +319,25 @@ export default function FeedsScreen() {
       }
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['videos'],
-        quality: 0.7,
+        quality: 0.5, // Increased compression for faster loading
+        videoMaxDuration: 60, // Limit to 60 seconds for reasonable file sizes
+        allowsEditing: false,
       });
       if (result.canceled || !result.assets || result.assets.length === 0) {
         return;
       }
       const asset = result.assets[0];
+      
+      // Check file size (rough estimate)
+      const fileSize = asset.fileSize || 0;
+      if (fileSize > 30 * 1024 * 1024) { // 30MB recommended for faster playback
+        Alert.alert(
+          'Video too large',
+          'This video may take a long time to start. Please pick a shorter/smaller one (recommended under 30MB).'
+        );
+        return;
+      }
+      
       // Normalise duration to seconds when available (for display only, not strict validation)
       let durationSec: number | null =
         typeof asset.duration === 'number' ? asset.duration : null;
@@ -156,32 +361,139 @@ export default function FeedsScreen() {
     }
     try {
       setPosting(true);
-      const username = (await AsyncStorage.getItem('username')) || 'You';
-      const now = new Date().toISOString();
+      // Resolve emp_id from stored userId (log_id)
+      const logId = await AsyncStorage.getItem('userId');
+      if (!logId) {
+        Alert.alert('Not logged in', 'Please log in again to post.');
+        setPosting(false);
+        return;
+      }
 
-      const row: FeedPost = {
-        post_id: Date.now(),
-        emp_id: 0,
+      const empRes = await fetch(
+        `${SUPABASE_URL}/rest/v1/employees?log_id=eq.${encodeURIComponent(
+          logId
+        )}&select=emp_id&limit=1`,
+        {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          },
+        }
+      );
+
+      if (!empRes.ok) {
+        throw new Error('Failed to resolve employee ID.');
+      }
+      const empRows = (await empRes.json()) as { emp_id: number }[];
+      if (!empRows || empRows.length === 0) {
+        throw new Error('No employee record linked to this account.');
+      }
+      const empId = empRows[0].emp_id;
+
+      // Optional: upload image to Supabase Storage if one is selected
+      let imageUrl: string | null = null;
+
+      // Optional: upload video to Supabase Storage if one is selected
+      let videoUrl: string | null = null;
+      let mediaType: string | null = null;
+      let durationSeconds: number | null = null;
+
+      // Use the existing public bucket from Supabase Storage.
+      const bucket = 'Posts';
+
+      if (imagePreviewUri) {
+        const contentType = imageMimeType || 'image/jpeg';
+        const ext = guessFileExtFromMime(contentType);
+        const fileName = `${empId}_${Date.now()}.${ext}`;
+        imageUrl = await uploadToSupabasePublicBucket({
+          bucket,
+          fileUri: imagePreviewUri,
+          fileName,
+          contentType,
+        });
+      }
+
+      if (videoUri) {
+        const fileName = `${empId}_${Date.now()}.mp4`;
+        videoUrl = await uploadToSupabasePublicBucket({
+          bucket,
+          fileUri: videoUri,
+          fileName,
+          contentType: 'video/mp4',
+        });
+        mediaType = 'video/mp4';
+        durationSeconds = videoDurationSeconds != null ? Math.round(videoDurationSeconds) : null;
+      }
+
+      const body: any = {
+        emp_id: empId,
         caption,
         is_achievement: newIsAchievement,
         kind: newKind,
-        created_at: now,
-        image_url: imageBase64 ? `data:image/jpeg;base64,${imageBase64}` : null,
-        media_type: videoUri ? 'video/mp4' : null,
-        video_url: videoUri ? videoUri : null,
-        video_duration_seconds:
-          videoDurationSeconds != null ? Math.round(videoDurationSeconds) : null,
-        employees: { name: username },
       };
 
-      setFeeds((prev) => [row, ...prev]);
+      // Only attach one media type per post
+      if (videoUrl) {
+        body.media_type = mediaType;
+        body.video_url = videoUrl;
+        if (durationSeconds != null) {
+          body.video_duration_seconds = durationSeconds;
+        }
+      } else if (imageUrl) {
+        body.image_url = imageUrl;
+        body.media_type = imageMimeType || 'image/jpeg';
+      }
+
+      const postRes = await fetch(`${SUPABASE_URL}/rest/v1/feeds_posts`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          Prefer: 'return=representation',
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!postRes.ok) {
+        const txt = await postRes.text();
+        throw new Error(`Failed to create post (${postRes.status}): ${txt.slice(0, 120)}`);
+      }
+
+      const created = (await postRes.json()) as FeedPost[];
+      const row = created && created[0] ? created[0] : null;
+      if (row) {
+        setFeeds((prev) => [row, ...prev]);
+      }
       setNewCaption('');
       setNewIsAchievement(false);
       setNewKind('post');
       setImagePreviewUri(null);
-      setImageBase64(null);
+      setImageMimeType(null);
       setVideoUri(null);
       setVideoDurationSeconds(null);
+
+      // Broadcast push notification to all users about the new post
+      try {
+        const notifTitle = newKind === 'announcement'
+          ? '📣 New Announcement'
+          : newIsAchievement
+            ? '🏆 New Achievement'
+            : '📰 New Post';
+        const notifBody = caption.length > 80 ? caption.slice(0, 77) + '...' : caption;
+        await fetch(`${getBackendUrl()}/notify-broadcast.php`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'ngrok-skip-browser-warning': 'true',
+          },
+          body: JSON.stringify({ title: notifTitle, body: notifBody, type: 'feeds' }),
+        });
+      } catch (_notifErr) {
+        // Notification failure should not block the post success
+      }
     } catch (e: any) {
       Alert.alert('Error', e?.message || 'Could not create post.');
     } finally {
@@ -360,38 +672,27 @@ export default function FeedsScreen() {
                 </View>
                 <Text style={[styles.feedDescription, dyn.text]}>{feed.caption}</Text>
 
-                {feed.image_url && (
-                  <View style={styles.feedImageWrapper}>
-                    <Image
-                      source={{
-                        uri: (() => {
-                          const raw = feed.image_url || '';
-                          if (
-                            raw.startsWith('http://') ||
-                            raw.startsWith('https://') ||
-                            raw.startsWith('file://')
-                          ) {
-                            return raw;
-                          }
-                          if (raw.startsWith('data:')) return raw;
-                          return `data:image/jpeg;base64,${raw}`;
-                        })(),
-                      }}
-                      style={styles.feedImage}
-                      resizeMode="cover"
-                    />
-                  </View>
-                )}
+                {feed.image_url && (() => {
+                  const imageSource = getImageSource(feed.image_url);
+                  if (!imageSource) return null; // Skip broken images
+                  
+                  return (
+                    <View style={styles.feedImageWrapper}>
+                      <Image
+                        source={{ uri: imageSource }}
+                        style={styles.feedImage}
+                        resizeMode="cover"
+                        fadeDuration={120}
+                        onError={(error) => {
+                          console.log('Image load error for post', feed.post_id, ':', error.nativeEvent.error);
+                        }}
+                      />
+                    </View>
+                  );
+                })()}
 
                 {feed.media_type?.startsWith('video') && feed.video_url && (
-                  <View style={styles.feedVideoWrapper}>
-                    <Video
-                      source={{ uri: feed.video_url }}
-                      style={styles.feedVideo}
-                      useNativeControls
-                      resizeMode="cover"
-                    />
-                  </View>
+                  <VideoPlayer videoUrl={feed.video_url} postId={feed.post_id} />
                 )}
 
                 {feed.kind === 'activity' && (
@@ -596,11 +897,57 @@ const styles = StyleSheet.create({
     marginTop: 10,
     borderRadius: 10,
     overflow: 'hidden',
+    position: 'relative',
+    backgroundColor: '#000',
+    height: 220,
   },
   feedVideo: {
     width: '100%',
     height: 220,
     backgroundColor: '#000',
+  },
+  videoTapToLoadOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+  },
+  videoLoadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+  },
+  videoLoadingText: {
+    color: '#FFF',
+    marginTop: 12,
+    fontSize: 13,
+  },
+  videoErrorOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#000',
+  },
+  videoErrorText: {
+    color: '#999',
+    marginTop: 12,
+    fontSize: 13,
   },
 });
 

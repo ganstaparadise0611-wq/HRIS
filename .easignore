@@ -1,0 +1,50 @@
+# EAS Build ignore file — excludes files/folders not needed in the mobile app bundle
+
+# Dependencies — MUST exclude, .easignore overrides .gitignore entirely
+node_modules/
+
+# Expo generated files
+.expo/
+dist/
+web-build/
+
+# PHP backend — not needed in the React Native app
+backend-php/
+
+# Dev tools
+*.ps1
+*.bat
+*.sh
+
+# Docs
+*.md
+docs/
+
+# Local environment files
+.env
+.env.*
+.env*.local
+
+# macOS
+.DS_Store
+*.pem
+
+# TypeScript
+*.tsbuildinfo
+
+# Native build artifacts
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Metro
+.metro-health-check*
+
+# Debug logs
+npm-debug.*
+yarn-debug.*
+yarn-error.*

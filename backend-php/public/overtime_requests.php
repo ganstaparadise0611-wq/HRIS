@@ -15,6 +15,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 header('Content-Type: application/json');
 
 require_once __DIR__ . '/connect.php';
+require_once __DIR__ . '/notify-helper.php';
 
 // GET endpoint - Get overtime history for an employee
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
@@ -162,6 +163,14 @@ if ($action === 'create') {
         exit;
     }
     
+    // Push notification: confirm submission to the requesting employee
+    notify_users(
+        [(int)$emp_id],
+        '⏱️ Overtime Request Submitted',
+        "Your overtime request for {$date} has been submitted and is pending approval.",
+        ['type' => 'overtime_request']
+    );
+
     echo json_encode([
         'ok' => true,
         'message' => 'Overtime request created successfully',

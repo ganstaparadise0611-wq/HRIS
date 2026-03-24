@@ -4,8 +4,8 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Animated, Dimensions, Modal, Platform, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import MapView, { Marker } from 'react-native-maps';
+import { ActivityIndicator, Animated, Dimensions, Modal, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import MapView, { Marker } from '../../components/Map';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getBackendUrl } from '../../constants/backend-config';
 import { recheckNetwork } from '../../constants/network-detector';
@@ -70,6 +70,7 @@ export default function UserAttendance() {
     text: { color: colors.text },
     sub: { color: colors.subText },
     footer: { backgroundColor: colors.card },
+    card: { backgroundColor: colors.card },
     border: { borderColor: colors.border }
   };
 
@@ -299,6 +300,7 @@ export default function UserAttendance() {
         return {
           ok: false,
           verified: false,
+          code: json.code,
           message: json.message,
           hint: json.hint,
           match_score: json.match_score,
@@ -405,9 +407,18 @@ export default function UserAttendance() {
           showModal('success', '✅ Face Verified!', result?.message || "Face match success. You are clocked in.", '');
         } else if (result?.verified === false) {
           // Validation failed (wrong face, poor lighting, etc.) - This is expected, not an error
-          const message = result?.message || "Face verification failed";
-          const hint = result?.hint || "Please try again";
-          showModal('error', '❌ Verification Failed', message, hint);
+          const isNoFace =
+            result?.code === 'NO_FACE_DETECTED' ||
+            String(result?.message || '').toLowerCase().includes('no face detected');
+
+          const message = result?.message || (isNoFace ? 'No face detected.' : 'Face verification failed.');
+          const hint = result?.hint || (isNoFace ? 'Center your face in the frame and try again.' : 'Please try again');
+
+          if (isNoFace) {
+            showModal('warning', '📷 No Face Detected', message, hint);
+          } else {
+            showModal('error', '❌ Verification Failed', message, hint);
+          }
         } else {
           // Unexpected response format
           showModal('error', 'Verification Failed', 'Please try again.', '');
@@ -495,41 +506,43 @@ export default function UserAttendance() {
 
             {/* Map card */}
             <View style={[styles.mapCard, dyn.card]}>
-              <View style={styles.mapCardHeader}>
-                <Ionicons name="location" size={20} color="#F27121" />
-                <Text style={[styles.mapCardTitle, dyn.text]}>Your Location</Text>
+              <View style={styles.mapSurface}>
+                {mapCoord ? (
+                  <>
+                    <MapView
+                      style={styles.map}
+                      initialRegion={{
+                        latitude: mapCoord.latitude,
+                        longitude: mapCoord.longitude,
+                        latitudeDelta: 0.005,
+                        longitudeDelta: 0.005,
+                      }}
+                    >
+                      <Marker
+                        coordinate={mapCoord}
+                        title={locationLabel || 'Clock‑in location'}
+                      />
+                    </MapView>
+                    <View style={styles.mapLabelOverlay}>
+                      <Ionicons name="location" size={18} color="#F27121" />
+                      <Text style={[styles.mapLabelText, dyn.text]}>Your Location</Text>
+                    </View>
+                  </>
+                ) : locationError ? (
+                  <View style={styles.mapPlaceholder}>
+                    <Ionicons name="location-outline" size={40} color={colors.subText} />
+                    <Text style={[styles.mapPlaceholderText, dyn.sub]}>{locationError}</Text>
+                    <TouchableOpacity style={styles.retryLocationButton} onPress={fetchLocation}>
+                      <Text style={styles.retryLocationText}>Retry</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <View style={styles.mapPlaceholder}>
+                    <ActivityIndicator size="small" color="#F27121" />
+                    <Text style={[styles.mapPlaceholderText, dyn.sub]}>Getting location...</Text>
+                  </View>
+                )}
               </View>
-              {mapCoord ? (
-                <View style={styles.mapWrapper}>
-                  <MapView
-                    style={styles.map}
-                    initialRegion={{
-                      latitude: mapCoord.latitude,
-                      longitude: mapCoord.longitude,
-                      latitudeDelta: 0.005,
-                      longitudeDelta: 0.005,
-                    }}
-                  >
-                    <Marker
-                      coordinate={mapCoord}
-                      title={locationLabel || 'Clock‑in location'}
-                    />
-                  </MapView>
-                </View>
-              ) : locationError ? (
-                <View style={styles.mapPlaceholder}>
-                  <Ionicons name="location-outline" size={40} color={colors.subText} />
-                  <Text style={[styles.mapPlaceholderText, dyn.sub]}>{locationError}</Text>
-                  <TouchableOpacity style={styles.retryLocationButton} onPress={fetchLocation}>
-                    <Text style={styles.retryLocationText}>Retry</Text>
-                  </TouchableOpacity>
-                </View>
-              ) : (
-                <View style={styles.mapPlaceholder}>
-                  <ActivityIndicator size="small" color="#F27121" />
-                  <Text style={[styles.mapPlaceholderText, dyn.sub]}>Getting location...</Text>
-                </View>
-              )}
             </View>
           </ScrollView>
         ) : (
@@ -664,7 +677,8 @@ export default function UserAttendance() {
   );
 }
 
-const MAP_HEIGHT = 200;
+// Map height scales with screen size (compact to fit in card layout)
+const MAP_HEIGHT = Math.round(Math.min(180, Math.max(140, width * 0.42)));
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
@@ -686,12 +700,25 @@ const styles = StyleSheet.create({
   statusTitle: { color: '#2ecc71', fontSize: 16, fontWeight: '800', letterSpacing: 2 },
   statusTime: { fontSize: 44, fontWeight: 'bold', marginTop: 8 },
   statusLocation: { marginTop: 6, fontSize: 13, textAlign: 'center' },
-  mapCard: { borderRadius: 20, overflow: 'hidden', elevation: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.12, shadowRadius: 8 },
-  mapCardHeader: { flexDirection: 'row', alignItems: 'center', padding: 14, paddingBottom: 10, gap: 8 },
-  mapCardTitle: { fontSize: 16, fontWeight: '700' },
+  mapCard: { borderRadius: 20, overflow: 'hidden', marginTop: 12, marginBottom: 20, elevation: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.12, shadowRadius: 8 },
+  mapSurface: { height: MAP_HEIGHT, width: '100%', position: 'relative' },
   mapWrapper: { height: MAP_HEIGHT, width: '100%' },
-  map: { flex: 1, width: '100%', height: MAP_HEIGHT, ...(Platform.OS === 'android' ? { borderRadius: 12 } : {}) },
-  mapPlaceholder: { height: MAP_HEIGHT, justifyContent: 'center', alignItems: 'center', padding: 20 },
+  // Map fills inner surface area inside the card
+  map: { flex: 1 },
+  mapLabelOverlay: { 
+    position: 'absolute', 
+    top: 12, 
+    left: 12, 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    backgroundColor: 'rgba(128, 128, 128, 0.85)', 
+    paddingHorizontal: 12, 
+    paddingVertical: 6, 
+    borderRadius: 8,
+    gap: 6,
+  },
+  mapLabelText: { fontSize: 14, fontWeight: '600', color: '#FFF' },
+  mapPlaceholder: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
   mapPlaceholderText: { marginTop: 8, fontSize: 13, textAlign: 'center' },
   retryLocationButton: { marginTop: 12, paddingHorizontal: 20, paddingVertical: 8, backgroundColor: '#F27121', borderRadius: 10 },
   retryLocationText: { color: '#FFF', fontWeight: '600', fontSize: 14 },

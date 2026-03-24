@@ -6,7 +6,7 @@
 
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: POST, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type, Authorization, Accept');
+header('Access-Control-Allow-Headers: Content-Type, Authorization, Accept, ngrok-skip-browser-warning, Cache-Control');
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(204);
@@ -22,6 +22,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 require_once __DIR__ . '/connect.php';
+require_once __DIR__ . '/notify-helper.php';
 
 $raw = file_get_contents('php://input') ?: '';
 $body = json_decode($raw, true);
@@ -67,6 +68,34 @@ if (is_array($messageData)) {
     $messageData['id'] = (string)($messageData['id'] ?? '');
     $messageData['sender_id'] = (string)($messageData['sender_id'] ?? '');
     $messageData['conversation_id'] = (string)($messageData['conversation_id'] ?? '');
+}
+
+// --- Push notification: alert other members of this conversation ---
+// Fetch sender's username
+[$uStatus, $uData] = supabase_request('GET', "rest/v1/accounts?log_id=eq.{$senderId}&select=username");
+$senderName = 'Someone';
+if ($uStatus === 200 && is_array($uData) && count($uData) > 0) {
+    $senderName = $uData[0]['username'] ?? 'Someone';
+}
+
+// Fetch all participants in the conversation
+[$pStatus, $pData] = supabase_request('GET', "rest/v1/conversation_participants?conversation_id=eq.{$conversationId}&select=user_id");
+if ($pStatus === 200 && is_array($pData)) {
+    $recipientIds = [];
+    foreach ($pData as $p) {
+        $pid = (int)($p['user_id'] ?? 0);
+        if ($pid > 0 && $pid !== (int)$senderId) {
+            $recipientIds[] = $pid;
+        }
+    }
+    if (!empty($recipientIds)) {
+        notify_users(
+            $recipientIds,
+            $senderName,
+            $content,
+            ['type' => 'chat', 'conversation_id' => $conversationId]
+        );
+    }
 }
 
 echo json_encode([

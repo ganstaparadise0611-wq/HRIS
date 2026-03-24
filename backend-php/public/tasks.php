@@ -11,6 +11,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 require_once 'connect.php';
+require_once 'notify-helper.php';
 
 $method = $_SERVER['REQUEST_METHOD'];
 
@@ -135,6 +136,14 @@ function handlePostRequest() {
         throw new Exception('Failed to create task', $statusCode);
     }
     
+    // Push notification: notify the user a new task was assigned
+    notify_users(
+        [$assigned_to],
+        '📋 New Task Assigned',
+        "You have a new task: {$title}",
+        ['type' => 'task_assigned']
+    );
+
     echo json_encode([
         'success' => true,
         'message' => 'Task created successfully',

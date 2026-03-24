@@ -3,7 +3,7 @@
 
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: POST, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type, Authorization, Accept');
+header('Access-Control-Allow-Headers: Content-Type, Authorization, Accept, ngrok-skip-browser-warning, Cache-Control');
 header('Content-Type: application/json');
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
@@ -98,12 +98,83 @@ if (!$storedFaceBase64) {
 $faceppConfigured = function_exists('facepp_api_configured') ? facepp_api_configured() : false;
 
 if ($faceppConfigured && function_exists('facepp_compare_faces')) {
+    // First: detect a face in the LIVE camera photo.
+    // This makes "no face detected" reliable instead of depending on compare() error strings.
+    $detectUrl = 'https://api-us.faceplusplus.com/facepp/v3/detect';
+    $detectPayload = [
+        'api_key' => defined('FACEPP_API_KEY') ? FACEPP_API_KEY : getenv('FACEPP_API_KEY'),
+        'api_secret' => defined('FACEPP_API_SECRET') ? FACEPP_API_SECRET : getenv('FACEPP_API_SECRET'),
+        'image_base64' => $photoBase64,
+        'return_attributes' => 'none',
+    ];
+
+    $ch = curl_init($detectUrl);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => http_build_query($detectPayload),
+        CURLOPT_TIMEOUT => 20,
+        CURLOPT_CONNECTTIMEOUT => 8,
+    ]);
+    $detectResponse = curl_exec($ch);
+    $detectHttpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $detectError = curl_error($ch);
+    curl_close($ch);
+
+    if ($detectError) {
+        http_response_code(502);
+        echo json_encode([
+            'ok' => false,
+            'message' => 'Face detection service error. Please try again.',
+            'detail' => $detectError,
+        ]);
+        exit;
+    }
+
+    $detectJson = json_decode((string)$detectResponse, true);
+    if ($detectHttpCode !== 200 || !is_array($detectJson) || isset($detectJson['error_message'])) {
+        $apiError = is_array($detectJson) ? ($detectJson['error_message'] ?? '') : '';
+        http_response_code(400);
+        echo json_encode([
+            'ok' => false,
+            'code' => 'NO_FACE_DETECTED',
+            'message' => 'No face detected in camera.',
+            'hint' => 'Make sure your whole face is inside the frame with good lighting, then try again.',
+            'detail' => $apiError !== '' ? $apiError : substr((string)$detectResponse, 0, 200),
+        ]);
+        exit;
+    }
+
+    $faces = $detectJson['faces'] ?? [];
+    if (!is_array($faces) || count($faces) === 0) {
+        http_response_code(401);
+        echo json_encode([
+            'ok' => false,
+            'code' => 'NO_FACE_DETECTED',
+            'message' => 'No face detected in camera.',
+            'hint' => 'Center your face in the frame and try again.',
+        ]);
+        exit;
+    }
+
     $result = facepp_compare_faces($photoBase64, $storedFaceBase64);
     if ($result === null) {
         $err = function_exists('facepp_get_last_error') ? facepp_get_last_error() : 'Face comparison failed';
-        http_response_code(500);
-        echo json_encode(['ok' => false, 'message' => 'Face comparison error', 'detail' => $err]);
-        exit;
+        // Distinguish between "no face detected" vs generic server error
+        if (is_string($err) && stripos($err, 'NO_FACE') !== false) {
+            http_response_code(401);
+            echo json_encode([
+                'ok' => false,
+                'code' => 'NO_FACE_DETECTED',
+                'message' => 'No face detected in camera.',
+                'hint' => 'Make sure your whole face is inside the frame with good lighting, then try again.',
+            ]);
+            exit;
+        } else {
+            http_response_code(500);
+            echo json_encode(['ok' => false, 'message' => 'Face comparison error', 'detail' => $err]);
+            exit;
+        }
     }
 
     // result contains 'similar' boolean and confidence (0-1)
@@ -119,6 +190,7 @@ if ($faceppConfigured && function_exists('facepp_compare_faces')) {
         http_response_code(401);
         echo json_encode([
             'ok' => false,
+            'code' => 'FACE_NOT_MATCHED',
             'message' => 'Face did not match',
             'match_score' => $result['confidence'],
             'threshold' => $result['threshold']

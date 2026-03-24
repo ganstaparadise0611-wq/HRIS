@@ -103,9 +103,6 @@ export default function UserChat() {
     loadUserData();
   }, []);
 
-  useEffect(() => {
-    recheckNetwork().catch(() => {});
-  }, []);
 
   useEffect(() => {
     if (currentUserId) {
@@ -129,6 +126,8 @@ export default function UserChat() {
     
     try {
       setLoadingChats(true);
+      // Wait for network detection to finish so we use the correct URL
+      await recheckNetwork().catch(() => {});
       const response = await fetch(`${getBackendUrl()}/get-conversations.php?user_id=${currentUserId}`, {
         headers: { 'ngrok-skip-browser-warning': 'true' }
       });
@@ -136,16 +135,24 @@ export default function UserChat() {
       
       if (result.ok) {
         // Format the data to match ChatData type (ids as strings for consistency)
-        const formattedChats = result.conversations.map((conv: any) => ({
-          id: String(conv.id),
-          type: conv.type,
-          name: conv.name,
-          last_message: conv.last_message || 'No messages yet',
-          last_message_time: formatTime(conv.last_message_time),
-          unread_count: conv.unread_count || 0,
-          online: Math.random() > 0.5, // Mock online status
-          other_user_id: conv.other_user_id ?? undefined,
-        }));
+        // For DMs the backend now returns the other participant's name; last_message uses "You: " when you sent it
+        const formattedChats = result.conversations.map((conv: any) => {
+          let lastMsg = conv.last_message || 'No messages yet';
+          // Normalize preview: "CurrentUsername: ..." -> "You: ..." (Messenger-style, in case backend didn't)
+          if (currentUsername && lastMsg.startsWith(currentUsername + ': ')) {
+            lastMsg = 'You: ' + lastMsg.slice((currentUsername + ': ').length);
+          }
+          return {
+            id: String(conv.id),
+            type: conv.type,
+            name: conv.name,
+            last_message: lastMsg,
+            last_message_time: formatTime(conv.last_message_time),
+            unread_count: conv.unread_count || 0,
+            online: Math.random() > 0.5, // Mock online status
+            other_user_id: conv.other_user_id ?? undefined,
+          };
+        });
         setChatData(formattedChats);
       }
     } catch (error) {

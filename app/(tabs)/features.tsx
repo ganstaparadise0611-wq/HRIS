@@ -16,7 +16,8 @@ export default function FeaturesScreen() {
     sub: { color: colors.subText },
     card: { backgroundColor: colors.card },
     border: { borderColor: colors.border },
-    iconBg: { backgroundColor: isDark ? '#333' : '#F0F0F0' },
+    iconBg: { backgroundColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.06)' },
+    accent: isDark ? '#6B9EFF' : '#2563eb',
   };
 
   const features = [
@@ -29,19 +30,24 @@ export default function FeaturesScreen() {
   return (
     <SafeAreaView style={[styles.container, dyn.bg]} edges={['top', 'left', 'right']}>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
-      <View style={styles.header}>
+      <View style={[styles.header, dyn.border]}>
         <Text style={[styles.headerTitle, dyn.text]}>Features</Text>
+        <Text style={[styles.headerSubtitle, dyn.sub]}>Payslip, leave, overtime & more</Text>
       </View>
-      <ScrollView contentContainerStyle={styles.content}>
-        <View style={[styles.gridContainer]}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.gridContainer}>
           {features.map((item) => (
             <TouchableOpacity
               key={item.label}
-              style={[styles.gridItem, dyn.card]}
+              style={[styles.gridItem, dyn.card, dyn.border]}
               onPress={() => router.push(item.route as any)}
+              activeOpacity={0.7}
             >
               <View style={[styles.iconCircle, dyn.iconBg]}>
-                <item.lib name={item.icon as any} size={26} color={isDark ? '#FFF' : '#333'} />
+                <item.lib name={item.icon as any} size={28} color={dyn.accent} />
               </View>
               <Text style={[styles.gridLabel, dyn.text]}>{item.label}</Text>
             </TouchableOpacity>
@@ -56,41 +62,54 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   header: {
     paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
+    paddingTop: 16,
+    paddingBottom: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  headerTitle: { fontSize: 18, fontWeight: 'bold' },
+  headerTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    letterSpacing: -0.5,
+  },
+  headerSubtitle: {
+    fontSize: 14,
+    marginTop: 4,
+    opacity: 0.85,
+  },
   content: {
     padding: 20,
+    paddingBottom: 32,
   },
   gridContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
+    gap: 16,
   },
   gridItem: {
     width: '47%',
-    borderRadius: 12,
-    paddingVertical: 20,
-    paddingHorizontal: 10,
+    borderRadius: 16,
+    paddingVertical: 24,
+    paddingHorizontal: 16,
     alignItems: 'center',
-    marginBottom: 16,
+    borderWidth: StyleSheet.hairlineWidth,
     elevation: 2,
     shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
   },
   iconCircle: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 12,
   },
   gridLabel: {
-    fontSize: 14,
-    fontWeight: '500',
+    fontSize: 15,
+    fontWeight: '600',
   },
 });
 

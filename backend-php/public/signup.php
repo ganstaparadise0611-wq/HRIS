@@ -8,7 +8,7 @@
 
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: POST, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type, Authorization, Accept');
+header('Access-Control-Allow-Headers: Content-Type, Authorization, Accept, ngrok-skip-browser-warning, Cache-Control');
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(204);
@@ -31,6 +31,15 @@ if (file_exists(__DIR__ . '/luxand_face_api.php')) {
     require_once __DIR__ . '/luxand_face_api.php';
     if (function_exists('luxand_face_api_configured')) {
         $luxandFaceApiAvailable = luxand_face_api_configured();
+    }
+}
+
+// Try to load Face++ helper (optional - used here only to ensure a real face is present)
+$faceppAvailable = false;
+if (file_exists(__DIR__ . '/facepp_api.php')) {
+    require_once __DIR__ . '/facepp_api.php';
+    if (function_exists('facepp_api_configured') && facepp_api_configured()) {
+        $faceppAvailable = true;
     }
 }
 
@@ -67,6 +76,72 @@ if (!$face) {
     http_response_code(400);
     echo json_encode(['ok' => false, 'message' => 'Face data is required']);
     exit;
+}
+
+// If Face++ is available, validate that the captured image actually contains a face
+if ($faceppAvailable) {
+    // Normalize face data to plain base64 for Face++ detect API
+    $faceBase64 = $face;
+    if (strpos($faceBase64, 'data:image') === 0) {
+        $commaPos = strpos($faceBase64, ',');
+        if ($commaPos !== false) {
+            $faceBase64 = substr($faceBase64, $commaPos + 1);
+        }
+    }
+
+    $detectUrl = 'https://api-us.faceplusplus.com/facepp/v3/detect';
+    $detectPayload = [
+        'api_key' => FACEPP_API_KEY,
+        'api_secret' => FACEPP_API_SECRET,
+        'image_base64' => $faceBase64,
+        'return_attributes' => 'none',
+    ];
+
+    $ch = curl_init($detectUrl);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => http_build_query($detectPayload),
+        CURLOPT_TIMEOUT => 20,
+    ]);
+    $detectResponse = curl_exec($ch);
+    $detectHttpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $detectError = curl_error($ch);
+    curl_close($ch);
+
+    if ($detectError) {
+        error_log('Face++ detect error during signup: ' . $detectError);
+        http_response_code(502);
+        echo json_encode([
+            'ok' => false,
+            'message' => 'Face detection service error. Please try capturing your face again.',
+        ]);
+        exit;
+    }
+
+    $detectJson = json_decode($detectResponse, true);
+    if ($detectHttpCode !== 200 || !is_array($detectJson)) {
+        $apiError = $detectJson['error_message'] ?? substr((string)$detectResponse, 0, 200);
+        error_log('Face++ detect HTTP ' . $detectHttpCode . ' during signup: ' . $apiError);
+        http_response_code(400);
+        echo json_encode([
+            'ok' => false,
+            'message' => 'Could not detect a face in the captured photo.',
+            'hint' => 'Make sure your face is clearly visible in the frame and try again.',
+        ]);
+        exit;
+    }
+
+    $faces = $detectJson['faces'] ?? [];
+    if (!is_array($faces) || count($faces) === 0) {
+        http_response_code(400);
+        echo json_encode([
+            'ok' => false,
+            'message' => 'No face detected in the captured photo.',
+            'hint' => 'Position your face in the center of the frame and ensure good lighting, then retake the photo.',
+        ]);
+        exit;
+    }
 }
 
 // Check if username already exists

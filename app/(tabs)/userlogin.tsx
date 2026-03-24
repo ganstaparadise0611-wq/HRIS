@@ -1,9 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFocusEffect } from '@react-navigation/native';
 import { Camera, CameraView } from 'expo-camera';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-    Alert,
+    BackHandler,
     Image,
     KeyboardAvoidingView,
     Modal,
@@ -20,12 +21,9 @@ import {
 } from 'react-native';
 import WheelPicker from 'react-native-wheely';
 import CustomAlert from '../../components/CustomAlert';
-import { getBackendUrl } from '../../constants/backend-config';
+import { SUPABASE_ANON_KEY, SUPABASE_URL, getBackendUrl } from '../../constants/backend-config';
 import { useCustomAlert } from '../../hooks/useCustomAlert';
-
-// Supabase configuration (for direct API calls if needed)
-const SUPABASE_URL = 'https://cgyqweheceduyrpxqvwd.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_MJmY9d0yFuPp6KtQ62stGw_lFHMnNAK';
+import { registerPushTokenAfterLogin } from '../../constants/notifications';
 
 export default function UserLogin() {
   const router = useRouter();
@@ -74,6 +72,38 @@ export default function UserLogin() {
   
   const daysInMonth = getDaysInMonth(selectedYear, selectedMonth);
   const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+
+  // Handle Android hardware back behavior so intermediate views close
+  // (signup form, camera, pickers) before leaving the login screen entirely.
+  useFocusEffect(
+    React.useCallback(() => {
+      const onBackPress = () => {
+        // Close nested UI layers first
+        if (showCamera) {
+          setShowCamera(false);
+          return true;
+        }
+        if (showDatePicker) {
+          setShowDatePicker(false);
+          return true;
+        }
+        if (showDeptPicker) {
+          setShowDeptPicker(false);
+          return true;
+        }
+        if (isSignUp) {
+          // Go back from Sign Up to Login, instead of leaving the screen
+          setIsSignUp(false);
+          return true;
+        }
+        // Let the default back behavior occur (navigate away from login)
+        return false;
+      };
+
+      const subscription = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+      return () => subscription.remove();
+    }, [isSignUp, showCamera, showDatePicker, showDeptPicker])
+  );
 
   // Test server connectivity - use light-weight public/test.php which doesn't touch Supabase
   const testServerConnection = async (): Promise<{ success: boolean; workingUrl?: string }> => {
@@ -205,6 +235,9 @@ export default function UserLogin() {
         AsyncStorage.setItem('userId', result.user.log_id.toString()),
         AsyncStorage.setItem('username', result.user.username),
       ]);
+
+      // Register push token now that userId is known
+      registerPushTokenAfterLogin().catch(() => {});
       
       console.log('[Login] Stored userId in AsyncStorage:', result.user.log_id.toString());
       
@@ -238,17 +271,17 @@ export default function UserLogin() {
 
   const handleSignUp = async () => {
     if (!username || !password) {
-      Alert.alert('Missing information', 'Please enter username and password.');
+      showAlert({ type: 'warning', title: 'Missing Information', message: 'Please enter username and password.' });
       return;
     }
 
     if (!name) {
-      Alert.alert('Missing information', 'Please enter your full name.');
+      showAlert({ type: 'warning', title: 'Missing Information', message: 'Please enter your full name.' });
       return;
     }
 
     if (!capturedImage) {
-      Alert.alert('Missing information', 'Please capture your face for verification.');
+      showAlert({ type: 'warning', title: 'Missing Information', message: 'Please capture your face for verification.' });
       return;
     }
 
@@ -319,8 +352,6 @@ export default function UserLogin() {
         signal: controller.signal,
       });
       
-      clearTimeout(timeoutId);
-
       clearTimeout(timeoutId);
 
       // Get response text first to handle non-JSON responses
@@ -518,11 +549,11 @@ export default function UserLogin() {
         <View style={styles.contentWrapper}>
           {/* LOGO AREA */}
           <View style={styles.logoContainer}>
-            <View style={styles.logoTextContainer}>
-               <Text style={styles.logoTDT}>TDT</Text>
-               <Text style={styles.logoPowersteel}>POWERSTEEL</Text>
-            </View>
-            <Text style={styles.tagline}>THE NO.1 STEEL SUPPLIER</Text>
+            <Image
+              source={require('../../assets/images/NEW_LOGO.png')}
+              style={styles.logoImage}
+              resizeMode="contain"
+            />
           </View>
 
           {/* LOGIN FORM */}
@@ -717,7 +748,7 @@ export default function UserLogin() {
                     />
                     <Text style={styles.toggleText}>Keep me logged in</Text>
                   </View>
-                  <TouchableOpacity>
+                  <TouchableOpacity onPress={() => router.push('/forgotpassword')}>
                     <Text style={styles.forgotPassword}>Forgot Password?</Text>
                   </TouchableOpacity>
                 </View>
@@ -942,11 +973,8 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#1A1A1A' },
   keyboardView: { flex: 1, paddingHorizontal: 30 },
   contentWrapper: { flex: 1, justifyContent: 'center' },
-  logoContainer: { alignItems: 'center', marginBottom: 30 },
-  logoTextContainer: { flexDirection: 'row', alignItems: 'center' },
-  logoTDT: { color: '#D3D3D3', fontSize: 32, fontWeight: '800', letterSpacing: 1 },
-  logoPowersteel: { color: '#F27121', fontSize: 32, fontWeight: '800', letterSpacing: 1 },
-  tagline: { color: '#888', fontSize: 12, marginTop: 5, letterSpacing: 2, fontWeight: '600', textTransform: 'uppercase' },
+  logoContainer: { alignItems: 'center', marginBottom: 32 },
+  logoImage: { width: 340, height: 140 },
   formContainer: { width: '100%', backgroundColor: '#252525', borderRadius: 15, elevation: 8, maxHeight: '85%' },
   formScrollView: { maxHeight: 600 },
   formScrollContent: { padding: 25 },

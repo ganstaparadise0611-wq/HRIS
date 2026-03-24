@@ -6,12 +6,12 @@ import React, { useCallback, useState } from 'react';
 import { Modal, ScrollView, StatusBar, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import CustomAlert from '../../components/CustomAlert';
+import { getBackendUrl } from '../../constants/backend-config';
 import { useCustomAlert } from '../../hooks/useCustomAlert';
 import { useTheme } from './ThemeContext'; // <--- IMPORT HOOK
 
 const SUPABASE_URL = 'https://cgyqweheceduyrpxqvwd.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_MJmY9d0yFuPp6KtQ62stGw_lFHMnNAK';
-const PHP_BACKEND_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.15.20:8000';
 
 export default function UserMenu() {
   const router = useRouter();
@@ -181,7 +181,7 @@ export default function UserMenu() {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 30000);
 
-      const response = await fetch(`${PHP_BACKEND_URL}/change_password.php`, {
+      const response = await fetch(`${getBackendUrl()}/change_password.php`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
