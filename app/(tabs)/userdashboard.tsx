@@ -4,6 +4,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import { ActivityIndicator, Image, SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { getBackendUrl } from '../../constants/backend-config';
 import { useTheme } from './ThemeContext';
 
 const SUPABASE_URL = 'https://cgyqweheceduyrpxqvwd.supabase.co';
@@ -31,6 +32,9 @@ export default function UserDashboard() {
   const [userName, setUserName] = useState<string>('User');
   const [announcements, setAnnouncements] = useState<AnnouncementPost[]>([]);
   const [announcementsLoading, setAnnouncementsLoading] = useState(false);
+  
+  const [attendanceHistory, setAttendanceHistory] = useState<any[]>([]);
+  const [attendanceLoading, setAttendanceLoading] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -103,8 +107,24 @@ export default function UserDashboard() {
         }
       };
 
+      const loadAttendanceHistory = async () => {
+        try {
+          setAttendanceLoading(true);
+          const userId = await AsyncStorage.getItem('userId');
+          if (!userId) return;
+          const res = await fetch(`${getBackendUrl()}/get-attendance-history.php?user_id=${userId}`);
+          const data = await res.json();
+          if (data.ok && data.history) {
+            setAttendanceHistory(data.history.slice(0, 3));
+          }
+        } catch (e) {} finally {
+          setAttendanceLoading(false);
+        }
+      };
+
       loadStatus();
       loadAnnouncements();
+      loadAttendanceHistory();
     }, [])
   );
 
@@ -195,6 +215,44 @@ export default function UserDashboard() {
           ))}
         </View>
 
+         {/* RECENT ATTENDANCE */}
+         <View style={styles.sectionHeader}>
+           <Text style={[styles.sectionTitle, dyn.text]}>Recent Attendance</Text>
+           <TouchableOpacity onPress={() => router.push('/(tabs)/attendancehistory' as any)}>
+             <Text style={[styles.viewAllText, { color: '#F27121' }]}>View all</Text>
+           </TouchableOpacity>
+         </View>
+         
+         {attendanceLoading ? (
+            <ActivityIndicator size="small" color="#F27121" style={{marginBottom: 20}} />
+         ) : attendanceHistory.length === 0 ? (
+            <Text style={[dyn.sub, {marginBottom: 20}]}>No recent attendance.</Text>
+         ) : (
+            <View style={styles.historyContainer}>
+              {attendanceHistory.map(item => {
+                const clockIn = item.timein ? item.timein.substring(0,5) : '--:--';
+                const clockOut = item.timeout ? item.timeout.substring(0,5) : '--:--';
+                const d = new Date(item.date);
+                const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                return (
+                  <View key={item.att_id} style={[styles.historyRow, dyn.card]}>
+                     <View style={styles.historyDateCol}>
+                       <Text style={[styles.historyDateText, dyn.text]}>{dateStr}</Text>
+                     </View>
+                     <View style={styles.historyTimeCol}>
+                       <Text style={[styles.historyLabel, dyn.sub]}>IN</Text>
+                       <Text style={[styles.historyValue, dyn.text]}>{clockIn}</Text>
+                     </View>
+                     <View style={styles.historyTimeCol}>
+                       <Text style={[styles.historyLabel, dyn.sub]}>OUT</Text>
+                       <Text style={[styles.historyValue, dyn.text]}>{clockOut}</Text>
+                     </View>
+                  </View>
+                )
+              })}
+            </View>
+         )}
+
         {/* COMPANY FEEDS — announcements from feeds (kind=announcement) */}
         <View style={styles.sectionHeader}>
           <Text style={[styles.sectionTitle, dyn.text]}>Company Feeds</Text>
@@ -281,6 +339,14 @@ const styles = StyleSheet.create({
   iconCircle: { width: 50, height: 50, borderRadius: 25, justifyContent: 'center', alignItems: 'center', marginBottom: 10 },
   gridLabel: { fontSize: 12, fontWeight: '500' },
   
+  historyContainer: { marginBottom: 20 },
+  historyRow: { flexDirection: 'row', alignItems: 'center', padding: 15, borderRadius: 12, marginBottom: 10, elevation: 1 },
+  historyDateCol: { flex: 1.5 },
+  historyDateText: { fontSize: 14, fontWeight: 'bold' },
+  historyTimeCol: { flex: 1, alignItems: 'flex-start' },
+  historyLabel: { fontSize: 10, fontWeight: 'bold', marginBottom: 2 },
+  historyValue: { fontSize: 14, fontWeight: '600' },
+
   feedCard: { padding: 15, borderRadius: 12, marginBottom: 12, elevation: 2 },
   feedHeader: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', marginBottom: 10, gap: 6 },
   feedTitle: { color: '#F27121', fontWeight: 'bold', marginLeft: 8 },
