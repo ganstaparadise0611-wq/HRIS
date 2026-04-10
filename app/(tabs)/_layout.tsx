@@ -2,10 +2,19 @@ import { Stack, usePathname } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { View } from 'react-native';
 import BottomNav from '../../components/BottomNav';
-import { ThemeProvider } from './ThemeContext'; // <--- IMPORT THE BRAIN
+import { ThemeProvider, useTheme } from './ThemeContext'; // <--- IMPORT THE BRAIN
+import React from 'react';
 
-export default function RootLayout() {
+import ModernSidebar from '../../components/ModernSidebar';
+import Animated, { useSharedValue, useAnimatedStyle, withTiming, Easing, interpolate } from 'react-native-reanimated';
+import { Dimensions, TouchableOpacity, StyleSheet } from 'react-native';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+function RootLayoutContent() {
   const pathname = usePathname();
+  const { colors, theme, sidebarVisible, setSidebarVisible } = useTheme();
+  
   // Expo Router may return '/userlogin' or '/(tabs)/userlogin' depending on config.
   // Signup UI is inside the same screen, so hiding on userlogin covers both.
   // Also hide bottom nav for password reset flow
@@ -22,11 +31,42 @@ export default function RootLayout() {
                         pathname === '/(tabs)/resetpassword' ||
                         pathname.endsWith('/resetpassword');
 
+  // Slide animation for entire app interface
+  const progress = useSharedValue(0);
+
+  React.useEffect(() => {
+    progress.value = withTiming(sidebarVisible ? 1 : 0, {
+      duration: 300,
+      easing: Easing.out(Easing.cubic),
+    });
+  }, [sidebarVisible]);
+
+  const animatedAppStyle = useAnimatedStyle(() => {
+    // Drop the scale to avoid the awkward vertical gap above the bottom tab navigator
+    const translateX = interpolate(progress.value, [0, 1], [0, SCREEN_WIDTH * 0.82]);
+    const borderRadius = interpolate(progress.value, [0, 1], [0, 20]);
+    
+    return {
+      flex: 1,
+      transform: [{ translateX }],
+      borderRadius,
+      overflow: 'hidden',
+    };
+  });
+
   return (
-    // WRAP EVERYTHING IN THEME PROVIDER
-    <ThemeProvider>
-      <StatusBar style="auto" />
-      <View style={{ flex: 1 }}>
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
+      <StatusBar style={theme === 'dark' ? "light" : "dark"} />
+      
+      {/* Global sliding wrapper for entire content including Bottom Nav */}
+      <Animated.View style={[animatedAppStyle, { backgroundColor: colors.background }]}>
+        {sidebarVisible && (
+          <TouchableOpacity 
+            activeOpacity={1} 
+            onPress={() => setSidebarVisible(false)} 
+            style={[{ zIndex: 9999 }, StyleSheet.absoluteFillObject]} 
+          />
+        )}
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Screen name="index" /> 
           <Stack.Screen name="userlogin" />
@@ -49,9 +89,23 @@ export default function RootLayout() {
           <Stack.Screen name="useronduty" />
           <Stack.Screen name="usermenu" />
           <Stack.Screen name="usertasks" />
+          <Stack.Screen name="shiftschedule" />
+          <Stack.Screen name="usertimesheet" />
         </Stack>
         {!hideBottomNav && <BottomNav />}
-      </View>
+      </Animated.View>
+
+      {/* Modern Sidebar sits at root level beneath sliding content */}
+      <ModernSidebar />
+    </View>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    // WRAP EVERYTHING IN THEME PROVIDER
+    <ThemeProvider>
+      <RootLayoutContent />
     </ThemeProvider>
   );
 }

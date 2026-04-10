@@ -26,6 +26,7 @@ const ThemeContext = createContext<any>(null);
 
 export const ThemeProvider = ({ children }: { children: React.ReactNode }) => {
   const [theme, setTheme] = useState('dark'); // Default to dark
+  const [sidebarVisible, setSidebarVisible] = useState(false); // Global sidebar state
 
   // Load saved theme on startup
   useEffect(() => {
@@ -47,7 +48,7 @@ export const ThemeProvider = ({ children }: { children: React.ReactNode }) => {
   const colors = theme === 'dark' ? Colors.dark : Colors.light;
 
   return (
-    <ThemeContext.Provider value={{ theme, toggleTheme, colors }}>
+    <ThemeContext.Provider value={{ theme, toggleTheme, colors, sidebarVisible, setSidebarVisible }}>
       {children}
     </ThemeContext.Provider>
   );
