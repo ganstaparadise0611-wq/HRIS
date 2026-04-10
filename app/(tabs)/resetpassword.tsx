@@ -107,7 +107,13 @@ export default function ResetPassword() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <CustomAlert visible={visible} {...config} onClose={hideAlert} />
+      <CustomAlert 
+        visible={visible} 
+        {...config} 
+        onClose={hideAlert} 
+        onConfirm={config.onClose}
+        onCancel={config.onCancel}
+      />
       <KeyboardAvoidingView
         style={styles.keyboardView}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}

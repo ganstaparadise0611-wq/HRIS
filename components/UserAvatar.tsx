@@ -1,6 +1,7 @@
 /**
  * UserAvatar - Displays user profile picture or initial fallback (like Messenger)
- * Fetches face image from Supabase accounts table when userId is provided
+ * Fetches profile_picture from Supabase accounts table when userId is provided.
+ * The `face` column is reserved for face recognition data only.
  */
 
 import React, { useEffect, useState } from 'react';
@@ -48,7 +49,7 @@ export default function UserAvatar({
     (async () => {
       try {
         const response = await fetch(
-          `${SUPABASE_URL}/rest/v1/accounts?log_id=eq.${userId}&select=face`,
+          `${SUPABASE_URL}/rest/v1/accounts?log_id=eq.${userId}&select=profile_picture`,
           {
             method: 'GET',
             headers: {
@@ -60,8 +61,8 @@ export default function UserAvatar({
         );
         const data = await response.json();
         if (cancelled) return;
-        if (data && data.length > 0 && data[0].face) {
-          const uri = faceToUri(data[0].face);
+        if (data && data.length > 0 && data[0].profile_picture) {
+          const uri = faceToUri(data[0].profile_picture);
           if (uri) setAvatarUri(uri);
         }
       } catch {

@@ -7,7 +7,10 @@ interface AlertConfig {
   message: string;
   hint?: string;
   buttonText?: string;
+  cancelText?: string;
+  onConfirm?: () => void;
   onClose?: () => void;
+  onCancel?: () => void;
 }
 
 export function useCustomAlert() {
@@ -27,9 +30,8 @@ export function useCustomAlert() {
 
   const hideAlert = () => {
     setVisible(false);
-    if (config.onClose) {
-      config.onClose();
-    }
+    // Note: The logic for calling callbacks was moved into the component (CustomAlert.tsx) 
+    // using handleClose(action). We just toggle visibility here.
   };
 
   return {

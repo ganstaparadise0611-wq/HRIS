@@ -1,13 +1,25 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
+import * as Sharing from 'expo-sharing';
+import * as FileSystem from 'expo-file-system/legacy';
+import { Video, ResizeMode } from 'expo-av';
 import {
   ActivityIndicator,
+  Animated,
+  BackHandler,
   FlatList,
+  Image,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
+  Pressable,
+  RefreshControl,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -32,7 +44,7 @@ type ChatData = {
   last_message_time: string; 
   unread_count: number; 
   online?: boolean;
-  other_user_id?: string; // For DMs: log_id of the other participant (for profile pic)
+  other_user_id?: string;
 };
 
 type Message = {
@@ -45,6 +57,8 @@ type Message = {
     log_id: string;
     username: string;
   };
+  media_url?: string;
+  media_type?: 'image' | 'video' | 'file';
 };
 
 type Account = {
@@ -52,1259 +66,324 @@ type Account = {
   username: string;
 };
 
+// --- Optimized ChatItem Component ---
+const ChatItem = React.memo(({ item, colorProps, isDarkTheme, onLongPress, onPress }: { 
+  item: ChatData; 
+  colorProps: any; 
+  isDarkTheme: boolean; 
+  onLongPress: (chat: ChatData) => void;
+  onPress: (chat: ChatData) => void;
+}) => {
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+  const onPressIn = () => { Animated.spring(scaleAnim, { toValue: 0.94, useNativeDriver: true }).start(); };
+  const onPressOut = () => { Animated.spring(scaleAnim, { toValue: 1, friction: 4, useNativeDriver: true }).start(); };
+
+  return (
+    <TouchableOpacity 
+      style={[styles.chatItem, { backgroundColor: colorProps.background }]} 
+      activeOpacity={0.8}
+      onPressIn={onPressIn}
+      onPressOut={onPressOut}
+      onPress={() => onPress(item)}
+      onLongPress={() => onLongPress(item)}
+      delayLongPress={500}
+    >
+      <Animated.View style={[styles.chatItemInner, { transform: [{ scale: scaleAnim }] }]}>
+        <View style={styles.avatarContainer}>
+          {item.type === 'channel' ? (
+            <View style={[styles.avatar, { backgroundColor: isDarkTheme ? '#2C3E50' : '#BDC3C7' }]}>
+              <Text style={styles.channelIcon}>#</Text>
+            </View>
+          ) : (
+            <UserAvatar
+              userId={item.other_user_id}
+              displayName={item.name}
+              size={50}
+              showOnline
+              isOnline={item.online}
+              backgroundColor="#F27121"
+              onlineDotBorderColor={colorProps.background}
+            />
+          )}
+        </View>
+        <View style={[styles.chatItemContent, { borderBottomColor: colorProps.border }]}>
+          <View style={styles.messageHeader}>
+              <Text style={[styles.chatName, { color: colorProps.text }]}>{item.name}</Text>
+              <Text style={[styles.timeText, { color: colorProps.subText }]}>{item.last_message_time}</Text>
+          </View>
+          <View style={styles.messageFooter}>
+              <Text style={[styles.lastMessage, { color: colorProps.subText }, item.unread_count > 0 && { color: colorProps.text, fontWeight: 'bold' }]} numberOfLines={1}>
+                  {item.last_message}
+              </Text>
+              {item.unread_count > 0 && (
+                  <View style={styles.unreadBadge}><Text style={styles.unreadText}>{item.unread_count}</Text></View>
+              )}
+          </View>
+        </View>
+      </Animated.View>
+    </TouchableOpacity>
+  );
+});
+
 export default function UserChat() {
-  const router = useRouter();
   const { colors, theme } = useTheme();
   const { visible, config, showAlert, hideAlert } = useCustomAlert();
   const isDark = theme === 'dark';
   const [searchText, setSearchText] = useState('');
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [currentUsername, setCurrentUsername] = useState<string>('');
-  
-  // Chat list state
+  const [isSending, setIsSending] = useState(false);
   const [chatData, setChatData] = useState<ChatData[]>([]);
   const [loadingChats, setLoadingChats] = useState(true);
-  
-  // Conversation view state
+  const [refreshing, setRefreshing] = useState(false);
   const [selectedChat, setSelectedChat] = useState<ChatData | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
-  const [loadingMessages, setLoadingMessages] = useState(false);
-  const [messageText, setMessageText] = useState('');
-  const [sendingMessage, setSendingMessage] = useState(false);
-  
-  // New conversation modal state
+  const [newMessage, setNewMessage] = useState('');
   const [showNewChatModal, setShowNewChatModal] = useState(false);
-  const [newChatType, setNewChatType] = useState<'channel' | 'dm'>('channel');
-  const [newChatName, setNewChatName] = useState('');
-  const [accountSuggestions, setAccountSuggestions] = useState<Account[]>([]);
-  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
-  const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
-  
-  // Add member modal state
   const [showAddMemberModal, setShowAddMemberModal] = useState(false);
-  const [memberSearchText, setMemberSearchText] = useState('');
-  const [memberSuggestions, setMemberSuggestions] = useState<Account[]>([]);
-  const [loadingMemberSuggestions, setLoadingMemberSuggestions] = useState(false);
-  const [addingMember, setAddingMember] = useState(false);
-  
-  // Chat info modal state
-  const [showChatInfoModal, setShowChatInfoModal] = useState(false);
-
-  // Channel members modal state
-  const [showMembersModal, setShowMembersModal] = useState(false);
-  const [channelMembers, setChannelMembers] = useState<{ user_id: string; username: string; joined_at: string | null }[]>([]);
-  const [loadingMembers, setLoadingMembers] = useState(false);
-  
+  const [showChatOptions, setShowChatOptions] = useState(false);
+  const [longPressedChat, setLongPressedChat] = useState<ChatData | null>(null);
+  const [showImageViewer, setShowImageViewer] = useState(false);
+  const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
+  const optionsSlideAnim = useRef(new Animated.Value(500)).current;
   const flatListRef = useRef<FlatList>(null);
-  const searchTimeoutRef = useRef<any>(null);
-  const memberSearchTimeoutRef = useRef<any>(null);
 
-  useEffect(() => {
-    loadUserData();
-  }, []);
-
-
-  useEffect(() => {
-    if (currentUserId) {
-      loadConversations();
-    }
-  }, [currentUserId]);
+  useEffect(() => { loadUserData(); }, []);
+  useFocusEffect(useCallback(() => { if (currentUserId) loadConversations(); }, [currentUserId]));
 
   const loadUserData = async () => {
-    try {
-      const userId = await AsyncStorage.getItem('userId');
-      const username = await AsyncStorage.getItem('username');
-      setCurrentUserId(userId);
-      setCurrentUsername(username || 'User');
-    } catch (error) {
-      console.error('Error loading user data:', error);
-    }
+    const userId = await AsyncStorage.getItem('userId');
+    const username = await AsyncStorage.getItem('username');
+    setCurrentUserId(userId);
+    setCurrentUsername(username || 'User');
   };
 
-  const loadConversations = async () => {
+  const loadConversations = async (showLoading = true) => {
     if (!currentUserId) return;
-    
     try {
-      setLoadingChats(true);
-      // Removed await recheckNetwork() to eliminate artificial delays (5+ seconds sometimes)
-      const response = await fetch(`${getBackendUrl()}/get-conversations.php?user_id=${currentUserId}`, {
-        headers: { 'ngrok-skip-browser-warning': 'true' }
-      });
-      const result = await response.json();
-      
-      if (result.ok) {
-        // Format the data to match ChatData type (ids as strings for consistency)
-        // For DMs the backend now returns the other participant's name; last_message uses "You: " when you sent it
-        const formattedChats = result.conversations.map((conv: any) => {
-          let lastMsg = conv.last_message || 'No messages yet';
-          // Normalize preview: "CurrentUsername: ..." -> "You: ..." (Messenger-style, in case backend didn't)
-          if (currentUsername && lastMsg.startsWith(currentUsername + ': ')) {
-            lastMsg = 'You: ' + lastMsg.slice((currentUsername + ': ').length);
-          }
-          return {
-            id: String(conv.id),
-            type: conv.type,
-            name: conv.name,
-            last_message: lastMsg,
-            last_message_time: formatTime(conv.last_message_time),
-            unread_count: conv.unread_count || 0,
-            online: Math.random() > 0.5, // Mock online status
-            other_user_id: conv.other_user_id ?? undefined,
-          };
-        });
-        setChatData(formattedChats);
+      let baseUrl = getBackendUrl();
+      let res;
+      try {
+        res = await fetch(`${baseUrl}/get-conversations.php?user_id=${currentUserId}`, { headers: { 'ngrok-skip-browser-warning': 'true' } });
+        if (!res.ok) throw new Error('Refresh needed');
+      } catch (e) {
+        baseUrl = await recheckNetwork();
+        res = await fetch(`${baseUrl}/get-conversations.php?user_id=${currentUserId}`, { headers: { 'ngrok-skip-browser-warning': 'true' } });
       }
-    } catch (error) {
-      console.error('Error loading conversations:', error);
-      // Use mock data if API fails
-      setChatData([
-        { id: '1', type: 'channel', name: '# announcements', last_message: 'HR: Please update your 201 files.', last_message_time: '10:30 AM', unread_count: 2 },
-        { id: '2', type: 'channel', name: '# it-support', last_message: 'You: Server is back online.', last_message_time: 'Yesterday', unread_count: 0 },
-        { id: '3', type: 'dm', name: 'Supervisor', last_message: 'Great job on the pitch deck!', last_message_time: 'Yesterday', unread_count: 0, online: true },
-        { id: '4', type: 'dm', name: 'HR Manager', last_message: 'Sent the form. Thanks.', last_message_time: 'Mon', unread_count: 0, online: false },
-        { id: '5', type: 'dm', name: 'John Doe (Intern)', last_message: 'Can you help me with React?', last_message_time: 'Mon', unread_count: 1, online: true },
-      ]);
-    } finally {
-      setLoadingChats(false);
-    }
-  };
-
-  const formatTime = (timestamp: string | null): string => {
-    if (!timestamp) return '';
-    
-    const date = new Date(timestamp);
-    const now = new Date();
-    const diff = now.getTime() - date.getTime();
-    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-    
-    if (days === 0) {
-      return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-    } else if (days === 1) {
-      return 'Yesterday';
-    } else if (days < 7) {
-      return date.toLocaleDateString('en-US', { weekday: 'short' });
-    } else {
-      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    }
-  };
-
-  const loadMessages = async (conversationId: string) => {
-    try {
-      setLoadingMessages(true);
-      const response = await fetch(`${getBackendUrl()}/get-messages.php?conversation_id=${conversationId}&limit=50`, {
-        headers: { 'ngrok-skip-browser-warning': 'true' }
-      });
-      const result = await response.json();
       
+      const result = await res.json();
+      if (result.ok) {
+        setChatData(result.conversations.map((conv: any) => ({
+          id: String(conv.id), type: conv.type, name: conv.name,
+          last_message: conv.last_message || 'No messages yet',
+          last_message_time: formatTime(conv.last_message_time),
+          unread_count: conv.unread_count || 0,
+          online: Math.random() > 0.5,
+          other_user_id: conv.other_user_id ?? undefined,
+        })));
+      }
+    } catch (e) { console.error('[Chat] Load failed:', e); } finally { setLoadingChats(false); setRefreshing(false); }
+  };
+
+  const loadMessages = async (cid: string) => {
+    try {
+      let baseUrl = getBackendUrl();
+      let res;
+      try {
+        res = await fetch(`${baseUrl}/get-messages.php?conversation_id=${cid}&limit=50`, { headers: { 'ngrok-skip-browser-warning': 'true' } });
+        if (!res.ok) throw new Error('Refresh needed');
+      } catch (e) {
+        baseUrl = await recheckNetwork();
+        res = await fetch(`${baseUrl}/get-messages.php?conversation_id=${cid}&limit=50`, { headers: { 'ngrok-skip-browser-warning': 'true' } });
+      }
+      const result = await res.json();
       if (result.ok) {
         setMessages(result.messages);
-        setTimeout(() => {
-          flatListRef.current?.scrollToEnd({ animated: true });
-        }, 100);
+        setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
       }
-    } catch (error) {
-      console.error('Error loading messages:', error);
-      // Mock messages for testing
-      setMessages([
-        { 
-          id: '1', 
-          conversation_id: conversationId, 
-          sender_id: '999', 
-          content: 'Hello! How can I help you?', 
-          created_at: new Date().toISOString(),
-          sender: { log_id: '999', username: 'System' }
-        },
-        { 
-          id: '2', 
-          conversation_id: conversationId, 
-          sender_id: currentUserId || '1', 
-          content: 'Hi there!', 
-          created_at: new Date().toISOString(),
-          sender: { log_id: currentUserId || '1', username: currentUsername }
-        }
-      ]);
-    } finally {
-      setLoadingMessages(false);
-    }
+    } catch (e) { console.error('[Messages] Load failed:', e); }
   };
 
-  const handleChatPress = (chat: ChatData) => {
-    setSelectedChat(chat);
-    loadMessages(chat.id);
-  };
-
-  const handleBackToList = () => {
-    setSelectedChat(null);
-    setMessages([]);
-    setMessageText('');
-  };
-
-  const handleSendMessage = async () => {
-    if (!messageText.trim() || !selectedChat || !currentUserId) return;
-    
+  const handleSendMessage = async (text: string | null = null, mediaUrl: string | null = null, mediaType: any = null) => {
+    if (!selectedChat || !currentUserId) return;
+    const content = text !== null ? text : newMessage;
+    if (!content.trim() && !mediaUrl) return;
     try {
-      setSendingMessage(true);
-      const response = await fetch(`${getBackendUrl()}/send-message.php`, {
+      const resp = await fetch(`${getBackendUrl()}/send-message.php`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'ngrok-skip-browser-warning': 'true',
-        },
-        body: JSON.stringify({
-          conversation_id: selectedChat.id,
-          sender_id: currentUserId,
-          content: messageText.trim()
-        })
+        headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
+        body: JSON.stringify({ conversation_id: selectedChat.id, sender_id: currentUserId, content, media_url: mediaUrl, media_type: mediaType })
       });
-      
-      const result = await response.json();
-      
-      if (result.ok) {
-        // Add message to local state immediately
-        const newMessage: Message = {
-          id: result.data.id || Date.now().toString(),
-          conversation_id: selectedChat.id,
-          sender_id: currentUserId,
-          content: messageText.trim(),
-          created_at: new Date().toISOString(),
-          sender: { log_id: currentUserId, username: currentUsername }
-        };
-        
-        setMessages(prev => [...prev, newMessage]);
-        setMessageText('');
-        
-        setTimeout(() => {
-          flatListRef.current?.scrollToEnd({ animated: true });
-        }, 100);
+      const res = await resp.json();
+      if (res.ok) {
+        if (!mediaUrl) setNewMessage('');
+        loadMessages(selectedChat.id);
       }
-    } catch (error) {
-      console.error('Error sending message:', error);
-      // Still add message locally for demo
-      const newMessage: Message = {
-        id: Date.now().toString(),
-        conversation_id: selectedChat.id,
-        sender_id: currentUserId,
-        content: messageText.trim(),
-        created_at: new Date().toISOString(),
-        sender: { log_id: currentUserId, username: currentUsername }
-      };
-      
-      setMessages(prev => [...prev, newMessage]);
-      setMessageText('');
-    } finally {
-      setSendingMessage(false);
-    }
+    } catch (e) { console.error('Send failed:', e); }
   };
 
-  const handleCreateNewChat = () => {
-    setShowNewChatModal(true);
-    setNewChatName('');
-    setSelectedAccount(null);
-    setAccountSuggestions([]);
-  };
-
-  const searchAccounts = async (query: string) => {
-    if (!query.trim() || newChatType !== 'dm') {
-      setAccountSuggestions([]);
-      return;
-    }
-
+  const pickMedia = async (type: 'image' | 'file') => {
     try {
-      setLoadingSuggestions(true);
-      const response = await fetch(
-        `${getBackendUrl()}/search-accounts.php?query=${encodeURIComponent(query)}&current_user_id=${currentUserId}&limit=10`
-      );
-      const result = await response.json();
-      
-      if (result.ok) {
-        setAccountSuggestions(result.accounts || []);
-      }
-    } catch (error) {
-      console.error('Error searching accounts:', error);
-      setAccountSuggestions([]);
-    } finally {
-      setLoadingSuggestions(false);
-    }
-  };
-
-  const handleSearchInputChange = (text: string) => {
-    setNewChatName(text);
-    setSelectedAccount(null);
-    
-    // Clear previous timeout
-    if (searchTimeoutRef.current) {
-      clearTimeout(searchTimeoutRef.current);
-    }
-    
-    // Debounce search - wait 300ms after user stops typing
-    if (newChatType === 'dm' && text.trim()) {
-      searchTimeoutRef.current = setTimeout(() => {
-        searchAccounts(text);
-      }, 300);
-    } else {
-      setAccountSuggestions([]);
-    }
-  };
-
-  const handleSelectAccount = (account: Account) => {
-    setSelectedAccount(account);
-    setNewChatName(account.username);
-    setAccountSuggestions([]);
-  };
-
-  const handleCreateConversation = async () => {
-    if (newChatType === 'dm') {
-      // For DM, must select an account
-      if (!selectedAccount) {
-        showAlert({ type: 'error', title: 'Error', message: 'Please select a user from the suggestions' });
-        return;
-      }
-    } else {
-      // For channel, just need a name
-      if (!newChatName.trim()) {
-        showAlert({ type: 'error', title: 'Error', message: 'Please enter a channel name' });
-        return;
-      }
-    }
-
-    if (!currentUserId) {
-      showAlert({ type: 'error', title: 'Error', message: 'User not logged in' });
-      return;
-    }
-
-    try {
-      // Prepare participant IDs
-      const participantIds = [currentUserId];
-      if (newChatType === 'dm' && selectedAccount) {
-        participantIds.push(selectedAccount.log_id);
-      }
-
-      // Create conversation via API
-      const response = await fetch(`${getBackendUrl()}/create-conversation.php`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'ngrok-skip-browser-warning': 'true',
-        },
-        body: JSON.stringify({
-          creator_id: currentUserId,
-          type: newChatType,
-          name: newChatType === 'channel' ? newChatName : newChatName,
-          participant_ids: participantIds
-        })
-      });
-
-      const result = await response.json();
-
-      if (result.ok && result.conversation) {
-        // Create local representation
-        const newConversation: ChatData = {
-          id: result.conversation.id,
-          type: result.conversation.type,
-          name: newChatType === 'channel' ? `# ${result.conversation.name}` : result.conversation.name,
-          last_message: 'No messages yet',
-          last_message_time: 'Now',
-          unread_count: 0,
-          online: newChatType === 'dm' ? Math.random() > 0.5 : undefined
-        };
-
-        setChatData(prev => [newConversation, ...prev]);
-        setShowNewChatModal(false);
-        setNewChatName('');
-        setSelectedAccount(null);
-        setAccountSuggestions([]);
-        setNewChatType('channel');
-        
-        showAlert({ type: 'success', title: 'Success', message: 'Conversation created! Tap to start chatting.' });
+      let result;
+      if (type === 'file') {
+        result = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true });
+        if (result.canceled) return;
+        handleMediaUpload(result.assets[0].uri, result.assets[0].name, 'file');
       } else {
-        showAlert({ type: 'error', title: 'Error', message: result.message || 'Failed to create conversation' });
+        result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, quality: 0.7 });
+        if (result.canceled) return;
+        handleMediaUpload(result.assets[0].uri, result.assets[0].fileName || `img_${Date.now()}`, 'image');
       }
-    } catch (error) {
-      console.error('Error creating conversation:', error);
-      showAlert({ type: 'error', title: 'Error', message: 'Failed to create conversation. Please check your connection.' });
-    }
+    } catch (e) { console.error('Picker error:', e); }
   };
 
-  const handleAttachment = () => {
-    showAlert({
-      type: 'info',
-      title: 'Attachments',
-      message: 'Choose attachment type: Photo/Video or Document',
-      hint: 'This feature is coming soon!'
+  const handleMediaUpload = async (uri: string, name: string, type: string) => {
+    try {
+      setIsSending(true);
+      const formData = new FormData();
+      // @ts-ignore
+      formData.append('file', { uri: Platform.OS === 'ios' ? uri.replace('file://', '') : uri, type: type === 'image' ? 'image/jpeg' : 'application/octet-stream', name });
+      formData.append('type', type);
+      const res = await fetch(`${getBackendUrl()}/upload-chat-media.php`, { method: 'POST', body: formData });
+      const data = await res.json();
+      if (data.ok) await handleSendMessage(null, data.media_url, type);
+    } catch (e) { console.error('Upload failed:', e); } finally { setIsSending(false); }
+  };
+
+  const openChatOptions = (chat: ChatData) => {
+    setLongPressedChat(chat);
+    setShowChatOptions(true);
+    Animated.spring(optionsSlideAnim, { toValue: 0, tension: 65, friction: 11, useNativeDriver: true }).start();
+  };
+
+  const closeChatOptions = () => {
+    Animated.timing(optionsSlideAnim, { toValue: 500, duration: 200, useNativeDriver: true }).start(() => {
+      setShowChatOptions(false);
+      setLongPressedChat(null);
     });
   };
 
-  const handleConversationInfo = () => {
-    if (!selectedChat) return;
-    setShowChatInfoModal(true);
+  const formatTime = (ts: string | null) => {
+    if (!ts) return '';
+    const date = new Date(ts);
+    return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
   };
 
-  const searchMembersToAdd = async (query: string) => {
-    if (!query.trim()) {
-      setMemberSuggestions([]);
-      return;
-    }
-
+  const handleShare = async (url: string) => {
     try {
-      setLoadingMemberSuggestions(true);
-      const response = await fetch(
-        `${getBackendUrl()}/search-accounts.php?query=${encodeURIComponent(query)}&current_user_id=${currentUserId}&limit=10`
-      );
-      const result = await response.json();
-      
-      if (result.ok) {
-        setMemberSuggestions(result.accounts || []);
-      }
-    } catch (error) {
-      console.error('Error searching members:', error);
-      setMemberSuggestions([]);
-    } finally {
-      setLoadingMemberSuggestions(false);
-    }
+      if (!url) return;
+      const filename = url.split('/').pop() || 'file';
+      const fileUri = `${FileSystem.documentDirectory}${filename}`;
+      const download = await FileSystem.downloadAsync(url, fileUri);
+      await Sharing.shareAsync(download.uri);
+    } catch (e) { console.error('Share error:', e); }
   };
 
-  const handleMemberSearchInputChange = (text: string) => {
-    setMemberSearchText(text);
-    
-    if (memberSearchTimeoutRef.current) {
-      clearTimeout(memberSearchTimeoutRef.current);
-    }
-    
-    if (text.trim()) {
-      memberSearchTimeoutRef.current = setTimeout(() => {
-        searchMembersToAdd(text);
-      }, 300);
-    } else {
-      setMemberSuggestions([]);
-    }
-  };
-
-  const handleAddMemberToChannel = async (account: Account) => {
-    if (!selectedChat || selectedChat.type !== 'channel') return;
-
-    try {
-      setAddingMember(true);
-      const response = await fetch(`${getBackendUrl()}/add-conversation-member.php`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'ngrok-skip-browser-warning': 'true',
-        },
-        body: JSON.stringify({
-          conversation_id: selectedChat.id,
-          user_id: account.log_id,
-          inviter_id: currentUserId ?? undefined,
-        })
-      });
-
-      const result = await response.json();
-
-      if (result.ok) {
-        showAlert({ type: 'success', title: 'Success', message: `${account.username} has been added to ${selectedChat.name}` });
-        setShowAddMemberModal(false);
-        setMemberSearchText('');
-        setMemberSuggestions([]);
-        if (result.system_message_posted) loadMessages(selectedChat.id);
-      } else {
-        showAlert({ type: 'error', title: 'Error', message: result.message || 'Failed to add member' });
-      }
-    } catch (error) {
-      console.error('Error adding member:', error);
-      showAlert({ type: 'error', title: 'Error', message: 'Failed to add member. Please check your connection.' });
-    } finally {
-      setAddingMember(false);
-    }
-  };
-
-  const dyn = {
-    bg: { backgroundColor: colors.background },
-    text: { color: colors.text },
-    sub: { color: colors.subText },
-    card: { backgroundColor: colors.card },
-    border: { borderColor: colors.border },
-    search: { backgroundColor: isDark ? '#252525' : '#E0E0E0', color: colors.text }
-  };
-
-  const renderChatItem = ({ item }: { item: ChatData }) => (
-    <TouchableOpacity style={[styles.chatItem, dyn.bg]} onPress={() => handleChatPress(item)}>
-      <View style={styles.avatarContainer}>
-        {item.type === 'channel' ? (
-           <View style={[styles.avatar, { backgroundColor: isDark ? '#2C3E50' : '#BDC3C7' }]}>
-             <Text style={styles.channelIcon}>#</Text>
-           </View>
-        ) : (
-           <UserAvatar
-             userId={item.other_user_id}
-             displayName={item.name}
-             size={50}
-             showOnline
-             isOnline={item.online}
-             backgroundColor="#F27121"
-             onlineDotBorderColor={colors.background}
-           />
-        )}
-      </View>
-      <View style={[styles.chatItemContent, dyn.border]}>
-        <View style={styles.messageHeader}>
-            <Text style={[styles.chatName, dyn.text]}>{item.name}</Text>
-            <Text style={[styles.timeText, dyn.sub]}>{item.last_message_time}</Text>
-        </View>
-        <View style={styles.messageFooter}>
-            <Text style={[styles.lastMessage, dyn.sub, item.unread_count > 0 && { color: colors.text, fontWeight: 'bold' }]} numberOfLines={1}>
-                {item.last_message}
-            </Text>
-            {item.unread_count > 0 && (
-                <View style={styles.unreadBadge}><Text style={styles.unreadText}>{item.unread_count}</Text></View>
-            )}
-        </View>
-      </View>
-    </TouchableOpacity>
-  );
-
-  const renderMessageItem = ({ item }: { item: Message }) => {
-    const systemMatch = item.content.match(/^added __(\d+)__\|(.+?) to the channel$/);
-    if (systemMatch) {
-      const [, addedUserId, addedUsername] = systemMatch;
-      const senderName = item.sender?.username || 'Someone';
-      const isAddedYou = String(addedUserId) === String(currentUserId);
-      const systemText = isAddedYou
-        ? `${senderName} added you to the group`
-        : `${senderName} added ${addedUsername} to the channel`;
-      return (
-        <View style={[styles.messageItemContainer, styles.systemMessageContainer]}>
-          <Text style={[styles.systemMessageText, dyn.sub]}>
-            {systemText}
-          </Text>
-          <Text style={[styles.systemMessageTime, dyn.sub]}>
-            {new Date(item.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-          </Text>
-        </View>
-      );
-    }
-
-    const isOwnMessage = String(item.sender_id) === String(currentUserId);
-    const senderName = item.sender?.username || 'Unknown';
+  const renderMessage = ({ item }: { item: Message }) => {
+    const isOwn = String(item.sender_id) === String(currentUserId);
+    const isSystemMessage = !item.sender_id || item.content?.includes('added __') || item.content?.includes('created the channel');
     
     return (
-      <View style={[styles.messageItemContainer, isOwnMessage && styles.ownMessageContainer]}>
-        {!isOwnMessage && selectedChat?.type === 'channel' && (
-          <Text style={[styles.senderName, dyn.sub]}>{senderName}</Text>
+      <View style={[styles.messageItemContainer, isOwn && styles.ownMessageContainer, isSystemMessage && styles.systemMessageContainer]}>
+        {!isOwn && !isSystemMessage && selectedChat?.type === 'channel' && (
+          <Text style={[styles.senderName, { color: colors.subText }]}>{item.sender?.username || 'User'}</Text>
         )}
-        <View style={[
-          styles.messageBubble, 
-          isOwnMessage ? styles.ownMessageBubble : [styles.otherMessageBubble, { backgroundColor: isDark ? '#2C2C2C' : '#E5E5EA' }]
-        ]}>
-          <Text style={[styles.messageContent, { color: isOwnMessage ? '#FFF' : colors.text }]}>
-            {item.content}
-          </Text>
-          <Text style={[styles.messageTime, { color: isOwnMessage ? 'rgba(255,255,255,0.7)' : colors.subText }]}>
-            {new Date(item.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-          </Text>
-        </View>
-      </View>
-    );
-  };
-
-  const loadChannelMembers = async () => {
-    if (!selectedChat?.id) return;
-    try {
-      setLoadingMembers(true);
-      const response = await fetch(
-        `${getBackendUrl()}/get-conversation-members.php?conversation_id=${encodeURIComponent(selectedChat.id)}`,
-        { headers: { 'ngrok-skip-browser-warning': 'true' } }
-      );
-      const result = await response.json();
-      if (result.ok && Array.isArray(result.members)) {
-        setChannelMembers(result.members);
-      } else {
-        setChannelMembers([]);
-      }
-    } catch (e) {
-      console.error('Error loading channel members:', e);
-      setChannelMembers([]);
-    } finally {
-      setLoadingMembers(false);
-    }
-  };
-
-  // Conversation View
-  if (selectedChat) {
-    return (
-      <SafeAreaView style={[styles.container, dyn.bg]} edges={['top', 'left', 'right']}>
-        <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
-        
-        <View style={[styles.header, dyn.border]}>
-          <TouchableOpacity onPress={handleBackToList} style={styles.iconBtn}>
-            <Ionicons name="arrow-back" size={24} color={colors.text} />
-          </TouchableOpacity>
-          <View style={styles.conversationHeader}>
-            <Text style={[styles.headerTitle, dyn.text]}>{selectedChat.name}</Text>
-            {selectedChat.type === 'dm' && selectedChat.online && (
-              <Text style={[styles.onlineStatus, { color: '#2ecc71' }]}>● Online</Text>
-            )}
-          </View>
-          {selectedChat.type === 'channel' && (
-            <>
-              <TouchableOpacity
-                style={styles.iconBtn}
-                onPress={() => {
-                  setShowMembersModal(true);
-                  loadChannelMembers();
-                }}
-                activeOpacity={0.6}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              >
-                <Ionicons name="people" size={26} color={colors.text} />
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.iconBtn}
-                onPress={() => setShowAddMemberModal(true)}
-                activeOpacity={0.6}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              >
-                <Ionicons name="person-add" size={26} color={colors.text} />
-              </TouchableOpacity>
-            </>
-          )}
-          <TouchableOpacity 
-            style={styles.iconBtn} 
-            onPress={handleConversationInfo}
-            activeOpacity={0.6}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          >
-            <Ionicons name="information-circle" size={26} color={colors.text} />
-          </TouchableOpacity>
-        </View>
-
-        <KeyboardAvoidingView 
-          style={styles.conversationContainer} 
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
-        >
-          {loadingMessages ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color="#F27121" />
-            </View>
-          ) : (
-            <FlatList
-              ref={flatListRef}
-              data={messages}
-              keyExtractor={(item) => item.id}
-              renderItem={renderMessageItem}
-              contentContainerStyle={styles.messagesContainer}
-              showsVerticalScrollIndicator={false}
-              onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
-            />
-          )}
-
-          <View style={[styles.messageInputContainer, dyn.border, { backgroundColor: isDark ? '#1C1C1C' : '#F5F5F5' }]}>
-            <TouchableOpacity style={styles.attachBtn} onPress={handleAttachment}>
-              <Ionicons name="add-circle-outline" size={28} color={colors.subText} />
-            </TouchableOpacity>
-            <TextInput
-              style={[styles.messageInput, dyn.text]}
-              placeholder="Type a message..."
-              placeholderTextColor={colors.subText}
-              value={messageText}
-              onChangeText={setMessageText}
-              multiline
-              maxLength={1000}
-            />
+        <View style={[styles.messageBubble, isSystemMessage ? styles.systemMessageBubble : (isOwn ? styles.ownMessageBubble : { backgroundColor: isDark ? '#222' : '#F0F0F0' })]}>
+          {item.media_url && !isSystemMessage && (
             <TouchableOpacity 
-              style={[styles.sendBtn, (!messageText.trim() || sendingMessage) && styles.sendBtnDisabled]} 
-              onPress={handleSendMessage}
-              disabled={!messageText.trim() || sendingMessage}
+              style={styles.mediaContainer} 
+              onPress={() => {
+                if (item.media_type === 'image') {
+                   setSelectedImageUrl(item.media_url || null);
+                   setShowImageViewer(true);
+                } else {
+                   handleShare(item.media_url!);
+                }
+              }}
             >
-              {sendingMessage ? (
-                <ActivityIndicator size="small" color="#FFF" />
-              ) : (
-                <Ionicons name="send" size={20} color="#FFF" />
+              {item.media_type === 'image' && <Image source={{ uri: item.media_url }} style={styles.messageImage} />}
+              {item.media_type === 'file' && (
+                <View style={styles.fileContainer}><Ionicons name="document-attach" size={24} color="#F27121" /><Text style={{marginLeft: 8, color: isOwn ? '#FFF' : colors.text}} numberOfLines={1}>File</Text></View>
               )}
             </TouchableOpacity>
-          </View>
-        </KeyboardAvoidingView>
-
-        {/* Chat Info Modal */}
-        <Modal
-          visible={showChatInfoModal}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setShowChatInfoModal(false)}
-        >
-          <View style={styles.chatInfoOverlay}>
-            <View style={[styles.chatInfoModal, dyn.bg]}>
-              <View style={[styles.modalHeader, dyn.border]}>
-                <Text style={[styles.modalTitle, dyn.text]}>Chat Information</Text>
-                <TouchableOpacity onPress={() => setShowChatInfoModal(false)} style={styles.iconBtn}>
-                  <Ionicons name="close" size={24} color={colors.text} />
-                </TouchableOpacity>
-              </View>
-
-              <View style={styles.chatInfoContent}>
-                <View style={styles.chatInfoItem}>
-                  <Ionicons name="chatbubbles" size={24} color="#F27121" />
-                  <View style={styles.chatInfoTextContainer}>
-                    <Text style={[styles.chatInfoLabel, dyn.sub]}>Chat Name</Text>
-                    <Text style={[styles.chatInfoValue, dyn.text]}>{selectedChat?.name}</Text>
-                  </View>
-                </View>
-
-                <View style={styles.chatInfoItem}>
-                  <Ionicons name={selectedChat?.type === 'channel' ? 'people' : 'person'} size={24} color="#F27121" />
-                  <View style={styles.chatInfoTextContainer}>
-                    <Text style={[styles.chatInfoLabel, dyn.sub]}>Type</Text>
-                    <Text style={[styles.chatInfoValue, dyn.text]}>
-                      {selectedChat?.type === 'channel' ? 'Group Chat' : 'Direct Message'}
-                    </Text>
-                  </View>
-                </View>
-
-                {selectedChat?.type === 'dm' && (
-                  <View style={styles.chatInfoItem}>
-                    <Ionicons name="radio-button-on" size={24} color={selectedChat?.online ? '#2ecc71' : '#95a5a6'} />
-                    <View style={styles.chatInfoTextContainer}>
-                      <Text style={[styles.chatInfoLabel, dyn.sub]}>Status</Text>
-                      <Text style={[styles.chatInfoValue, dyn.text]}>
-                        {selectedChat?.online ? 'Active now' : 'Offline'}
-                      </Text>
-                    </View>
-                  </View>
-                )}
-
-                {selectedChat?.type === 'channel' && (
-                  <>
-                    <TouchableOpacity
-                      style={[styles.chatInfoItem, styles.chatInfoAction]}
-                      onPress={() => {
-                        setShowChatInfoModal(false);
-                        setShowMembersModal(true);
-                        loadChannelMembers();
-                      }}
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons name="people" size={24} color="#F27121" />
-                      <View style={styles.chatInfoTextContainer}>
-                        <Text style={[styles.chatInfoLabel, dyn.sub]}>Channel members</Text>
-                        <Text style={[styles.chatInfoValue, { color: '#F27121' }]}>
-                          View who's in this channel
-                        </Text>
-                      </View>
-                      <Ionicons name="chevron-forward" size={20} color={colors.subText} />
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.chatInfoItem, styles.chatInfoAction]}
-                      onPress={() => {
-                        setShowChatInfoModal(false);
-                        setShowAddMemberModal(true);
-                      }}
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons name="person-add" size={24} color="#F27121" />
-                      <View style={styles.chatInfoTextContainer}>
-                        <Text style={[styles.chatInfoLabel, dyn.sub]}>Add member</Text>
-                        <Text style={[styles.chatInfoValue, { color: '#F27121' }]}>
-                          Invite someone to this channel
-                        </Text>
-                      </View>
-                      <Ionicons name="chevron-forward" size={20} color={colors.subText} />
-                    </TouchableOpacity>
-                  </>
-                )}
-              </View>
-            </View>
-          </View>
-        </Modal>
-
-        {/* Channel Members Modal */}
-        <Modal
-          visible={showMembersModal}
-          transparent
-          animationType="slide"
-          onRequestClose={() => setShowMembersModal(false)}
-        >
-          <View style={styles.modalOverlay}>
-            <View style={[styles.modalContent, dyn.card]}>
-              <View style={[styles.modalHeader, dyn.border]}>
-                <Text style={[styles.modalTitle, dyn.text]}>Channel Members</Text>
-                <TouchableOpacity onPress={() => setShowMembersModal(false)}>
-                  <Ionicons name="close" size={24} color={colors.text} />
-                </TouchableOpacity>
-              </View>
-              <ScrollView style={styles.modalBody}>
-                {loadingMembers ? (
-                  <View style={styles.loadingContainer}>
-                    <ActivityIndicator size="large" color="#F27121" />
-                  </View>
-                ) : channelMembers.length === 0 ? (
-                  <Text style={[styles.noResultsText, dyn.sub]}>No members found</Text>
-                ) : (
-                  <View style={[styles.suggestionsContainer, dyn.border]}>
-                    <Text style={[styles.suggestionsHeader, dyn.sub]}>
-                      {channelMembers.length} member{channelMembers.length !== 1 ? 's' : ''}
-                    </Text>
-                    {channelMembers.map((member) => (
-                      <View key={member.user_id} style={[styles.suggestionItem, dyn.border]}>
-                        <UserAvatar
-                          userId={member.user_id}
-                          displayName={member.username}
-                          size={40}
-                          backgroundColor="#F27121"
-                        />
-                        <View style={{ flex: 1 }}>
-                          <Text style={[styles.suggestionUsername, dyn.text]}>{member.username}</Text>
-                          {member.joined_at && (
-                            <Text style={[styles.suggestionId, dyn.sub]}>
-                              Joined {new Date(member.joined_at).toLocaleDateString()}
-                            </Text>
-                          )}
-                        </View>
-                        {String(member.user_id) === String(currentUserId) && (
-                          <Text style={[styles.suggestionId, { color: '#F27121', fontSize: 12 }]}>You</Text>
-                        )}
-                      </View>
-                    ))}
-                  </View>
-                )}
-              </ScrollView>
-            </View>
-          </View>
-        </Modal>
-
-        {/* Add Member Modal (when viewing a channel) */}
-        <Modal
-          visible={showAddMemberModal}
-          transparent
-          animationType="slide"
-          onRequestClose={() => setShowAddMemberModal(false)}
-        >
-          <View style={styles.modalOverlay}>
-            <View style={[styles.modalContent, dyn.card]}>
-              <View style={[styles.modalHeader, dyn.border]}>
-                <Text style={[styles.modalTitle, dyn.text]}>Add Member to Channel</Text>
-                <TouchableOpacity onPress={() => {
-                  setShowAddMemberModal(false);
-                  setMemberSearchText('');
-                  setMemberSuggestions([]);
-                }}>
-                  <Ionicons name="close" size={24} color={colors.text} />
-                </TouchableOpacity>
-              </View>
-
-              <ScrollView style={styles.modalBody}>
-                <Text style={[styles.label, dyn.text]}>Search User</Text>
-                <View style={{ position: 'relative' }}>
-                  <TextInput
-                    style={[styles.input, dyn.border, { color: colors.text, backgroundColor: isDark ? '#2C2C2C' : '#F5F5F5' }]}
-                    placeholder="Type username to search..."
-                    placeholderTextColor={colors.subText}
-                    value={memberSearchText}
-                    onChangeText={handleMemberSearchInputChange}
-                    autoCapitalize="none"
-                  />
-                  {loadingMemberSuggestions && (
-                    <ActivityIndicator
-                      size="small"
-                      color="#F27121"
-                      style={{ position: 'absolute', right: 15, top: 15 }}
-                    />
-                  )}
-                </View>
-
-                {memberSuggestions.length > 0 && (
-                  <View style={[styles.suggestionsContainer, dyn.card, dyn.border]}>
-                    <Text style={[styles.suggestionsHeader, dyn.sub]}>
-                      Select Member ({memberSuggestions.length} found)
-                    </Text>
-                    {memberSuggestions.map((account) => (
-                      <TouchableOpacity
-                        key={account.log_id}
-                        style={[styles.suggestionItem, dyn.border]}
-                        onPress={() => handleAddMemberToChannel(account)}
-                        disabled={addingMember}
-                      >
-                        <View style={[styles.suggestionAvatar, { backgroundColor: '#F27121' }]}>
-                          <Text style={styles.suggestionAvatarText}>
-                            {account.username.charAt(0).toUpperCase()}
-                          </Text>
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={[styles.suggestionUsername, dyn.text]}>
-                            {account.username}
-                          </Text>
-                          <Text style={[styles.suggestionId, dyn.sub]}>
-                            ID: {account.log_id}
-                          </Text>
-                        </View>
-                        {addingMember ? (
-                          <ActivityIndicator size="small" color="#F27121" />
-                        ) : (
-                          <Ionicons name="person-add" size={20} color="#F27121" />
-                        )}
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                )}
-
-                {memberSearchText.trim() && !loadingMemberSuggestions && memberSuggestions.length === 0 && (
-                  <View style={[styles.noResultsContainer, dyn.border]}>
-                    <Ionicons name="search" size={32} color={colors.subText} />
-                    <Text style={[styles.noResultsText, dyn.sub]}>
-                      No users found matching "{memberSearchText}"
-                    </Text>
-                    <Text style={[styles.noResultsHint, dyn.sub]}>
-                      Try a different username
-                    </Text>
-                  </View>
-                )}
-
-                <View style={styles.modalActions}>
-                  <TouchableOpacity
-                    style={[styles.modalButton, styles.cancelButton, { borderColor: colors.border }]}
-                    onPress={() => {
-                      setShowAddMemberModal(false);
-                      setMemberSearchText('');
-                      setMemberSuggestions([]);
-                    }}
-                  >
-                    <Text style={[styles.cancelButtonText, dyn.text]}>Close</Text>
-                  </TouchableOpacity>
-                </View>
-              </ScrollView>
-            </View>
-          </View>
-        </Modal>
-      </SafeAreaView>
+          )}
+          {item.content ? (
+            <Text style={[isSystemMessage ? styles.systemMessageText : styles.messageText, { color: isSystemMessage ? colors.subText : (isOwn ? '#FFF' : colors.text) }]}>
+              {isSystemMessage && item.content.includes('|') ? item.content.split('|')[1].split(' ')[0] + ' was added' : item.content}
+            </Text>
+          ) : null}
+        </View>
+        {!isSystemMessage && item.sender_id && <Text style={[styles.messageTime, { color: colors.subText }]}>{formatTime(item.created_at)}</Text>}
+      </View>
     );
-  }
+  };
 
-  // Chat List View
   return (
-    <SafeAreaView style={[styles.container, dyn.bg]} edges={['top', 'left', 'right']}>
-      <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
-      
-      <View style={[styles.header, dyn.border]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.iconBtn}>
-          <Ionicons name="arrow-back" size={24} color={colors.text} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, dyn.text]}>Team Chat</Text>
-        <TouchableOpacity style={styles.iconBtn} onPress={handleCreateNewChat}>
-           <Ionicons name="create-outline" size={24} color="#F27121" />
-        </TouchableOpacity>
-      </View>
-
-      <View style={[styles.searchContainer, dyn.search]}>
-        <Ionicons name="search" size={20} color={colors.subText} style={styles.searchIcon} />
-        <TextInput 
-            style={[styles.searchInput, { color: colors.text }]} 
-            placeholder="Search messages..." 
-            placeholderTextColor={colors.subText}
-            value={searchText}
-            onChangeText={setSearchText}
-        />
-      </View>
-
-      {loadingChats ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#F27121" />
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
+      {!selectedChat ? (
+        <View style={{ flex: 1 }}>
+          <View style={[styles.header, { borderBottomColor: colors.border }]}>
+            <TouchableOpacity style={styles.iconBtn}><Ionicons name="search" size={24} color={colors.text} /></TouchableOpacity>
+            <Text style={[styles.headerTitle, { color: colors.text }]}>Messages</Text>
+            <TouchableOpacity onPress={() => setShowNewChatModal(true)} style={styles.iconBtn}><Ionicons name="add-circle" size={28} color="#F27121" /></TouchableOpacity>
+          </View>
+          <View style={[styles.searchContainer, { backgroundColor: isDark ? '#2C2C2E' : '#EAEAEA' }]}>
+            <Ionicons name="search" size={20} color={colors.subText} style={styles.searchIcon} />
+            <TextInput style={[styles.searchInput, { color: colors.text }]} placeholder="Search chats..." placeholderTextColor={colors.subText} value={searchText} onChangeText={setSearchText} />
+          </View>
+          <FlatList
+            data={chatData.filter(c => c.name.toLowerCase().includes(searchText.toLowerCase()))}
+            renderItem={({ item }) => <ChatItem item={item} colorProps={colors} isDarkTheme={isDark} onLongPress={openChatOptions} onPress={(c) => { setSelectedChat(c); loadMessages(c.id); }} />}
+            keyExtractor={item => item.id}
+            contentContainerStyle={styles.listContent}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadConversations(false); }} />}
+          />
         </View>
       ) : (
-        <FlatList
-          data={chatData}
-          keyExtractor={(item) => item.id}
-          renderItem={renderChatItem}
-          contentContainerStyle={styles.listContent}
-          showsVerticalScrollIndicator={false}
-        />
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+          <View style={[styles.header, { borderBottomColor: colors.border }]}>
+            <TouchableOpacity onPress={() => { setSelectedChat(null); setMessages([]); }}><Ionicons name="chevron-back" size={24} color="#F27121" /></TouchableOpacity>
+            <Text style={[styles.headerTitle, { color: colors.text }]}>{selectedChat.name}</Text>
+            <TouchableOpacity onPress={() => setShowAddMemberModal(true)}><Ionicons name="person-add" size={24} color="#F27121" /></TouchableOpacity>
+          </View>
+          <FlatList ref={flatListRef} data={messages} renderItem={renderMessage} keyExtractor={item => item.id} contentContainerStyle={{ padding: 20 }} />
+          <View style={[styles.inputContainer, { borderTopColor: colors.border }]}>
+            <TouchableOpacity style={styles.attachBtn} onPress={() => pickMedia('image')}><Ionicons name="image" size={26} color="#F27121" /></TouchableOpacity>
+            <TouchableOpacity style={styles.attachBtn} onPress={() => pickMedia('file')}><Ionicons name="attach" size={26} color="#F27121" /></TouchableOpacity>
+            <TextInput style={[styles.messageInput, { color: colors.text, backgroundColor: isDark ? '#2C2C2E' : '#F0F0F0' }]} placeholder="Message..." placeholderTextColor={colors.subText} value={newMessage} onChangeText={setNewMessage} multiline />
+            {isSending ? <ActivityIndicator size="small" color="#F27121" /> : (
+              <TouchableOpacity style={styles.sendBtn} onPress={() => handleSendMessage()}><Ionicons name="send" size={24} color="#F27121" /></TouchableOpacity>
+            )}
+          </View>
+        </KeyboardAvoidingView>
       )}
 
-      {/* New Conversation Modal */}
-      <Modal
-        visible={showNewChatModal}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowNewChatModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, dyn.card]}>
-            <View style={[styles.modalHeader, dyn.border]}>
-              <Text style={[styles.modalTitle, dyn.text]}>New Conversation</Text>
-              <TouchableOpacity onPress={() => setShowNewChatModal(false)}>
-                <Ionicons name="close" size={24} color={colors.text} />
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView style={styles.modalBody}>
-              <Text style={[styles.label, dyn.text]}>Conversation Type</Text>
-              <View style={styles.typeSelector}>
-                <TouchableOpacity
-                  style={[
-                    styles.typeButton,
-                    newChatType === 'channel' && styles.typeButtonActive,
-                    { borderColor: colors.border }
-                  ]}
-                  onPress={() => setNewChatType('channel')}
-                >
-                  <Ionicons 
-                    name="megaphone" 
-                    size={24} 
-                    color={newChatType === 'channel' ? '#F27121' : colors.subText} 
-                  />
-                  <Text style={[
-                    styles.typeButtonText,
-                    { color: newChatType === 'channel' ? '#F27121' : colors.text }
-                  ]}>Channel</Text>
-                  {newChatType === 'channel' && (
-                    <Ionicons name="checkmark-circle" size={20} color="#F27121" />
-                  )}
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[
-                    styles.typeButton,
-                    newChatType === 'dm' && styles.typeButtonActive,
-                    { borderColor: colors.border }
-                  ]}
-                  onPress={() => setNewChatType('dm')}
-                >
-                  <Ionicons 
-                    name="person" 
-                    size={24} 
-                    color={newChatType === 'dm' ? '#F27121' : colors.subText} 
-                  />
-                  <Text style={[
-                    styles.typeButtonText,
-                    { color: newChatType === 'dm' ? '#F27121' : colors.text }
-                  ]}>Direct Message</Text>
-                  {newChatType === 'dm' && (
-                    <Ionicons name="checkmark-circle" size={20} color="#F27121" />
-                  )}
-                </TouchableOpacity>
-              </View>
-
-              <Text style={[styles.label, dyn.text, { marginTop: 20 }]}>
-                {newChatType === 'channel' ? 'Channel Name' : 'Search User'}
-              </Text>
-              <View style={{ position: 'relative' }}>
-                <TextInput
-                  style={[styles.input, dyn.border, { color: colors.text, backgroundColor: isDark ? '#2C2C2C' : '#F5F5F5' }]}
-                  placeholder={newChatType === 'channel' ? 'e.g., general, announcements' : 'Type username to search...'}
-                  placeholderTextColor={colors.subText}
-                  value={newChatName}
-                  onChangeText={handleSearchInputChange}
-                  autoCapitalize="none"
-                  editable={newChatType === 'channel' || !selectedAccount}
-                />
-                {loadingSuggestions && newChatType === 'dm' && (
-                  <ActivityIndicator 
-                    size="small" 
-                    color="#F27121" 
-                    style={{ position: 'absolute', right: 15, top: 15 }} 
-                  />
-                )}
-              </View>
-
-              {/* Account Suggestions Dropdown */}
-              {newChatType === 'dm' && accountSuggestions.length > 0 && (
-                <View style={[styles.suggestionsContainer, dyn.card, dyn.border]}>
-                  <Text style={[styles.suggestionsHeader, dyn.sub]}>
-                    Select User ({accountSuggestions.length} found)
-                  </Text>
-                  {accountSuggestions.map((account) => (
-                    <TouchableOpacity
-                      key={account.log_id}
-                      style={[styles.suggestionItem, dyn.border]}
-                      onPress={() => handleSelectAccount(account)}
-                    >
-                      <View style={[styles.suggestionAvatar, { backgroundColor: '#F27121' }]}>
-                        <Text style={styles.suggestionAvatarText}>
-                          {account.username.charAt(0).toUpperCase()}
-                        </Text>
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={[styles.suggestionUsername, dyn.text]}>
-                          {account.username}
-                        </Text>
-                        <Text style={[styles.suggestionId, dyn.sub]}>
-                          ID: {account.log_id}
-                        </Text>
-                      </View>
-                      <Ionicons name="person-add" size={20} color="#F27121" />
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              )}
-
-              {/* Selected Account Indicator */}
-              {selectedAccount && newChatType === 'dm' && (
-                <View style={[styles.selectedAccountBanner, { backgroundColor: 'rgba(242, 113, 33, 0.1)' }]}>
-                  <Ionicons name="checkmark-circle" size={20} color="#F27121" />
-                  <Text style={[styles.selectedAccountText, { color: '#F27121' }]}>
-                    Ready to chat with {selectedAccount.username}
-                  </Text>
-                  <TouchableOpacity 
-                    onPress={() => {
-                      setSelectedAccount(null);
-                      setNewChatName('');
-                    }}
-                  >
-                    <Ionicons name="close-circle" size={20} color="#F27121" />
-                  </TouchableOpacity>
-                </View>
-              )}
-
-              {/* No Results Message */}
-              {newChatType === 'dm' && newChatName.trim() && !loadingSuggestions && accountSuggestions.length === 0 && !selectedAccount && (
-                <View style={[styles.noResultsContainer, dyn.border]}>
-                  <Ionicons name="search" size={32} color={colors.subText} />
-                  <Text style={[styles.noResultsText, dyn.sub]}>
-                    No users found matching "{newChatName}"
-                  </Text>
-                  <Text style={[styles.noResultsHint, dyn.sub]}>
-                    Try a different username
-                  </Text>
-                </View>
-              )}
-
-              <View style={styles.modalActions}>
-                <TouchableOpacity
-                  style={[styles.modalButton, styles.cancelButton, { borderColor: colors.border }]}
-                  onPress={() => {
-                    setShowNewChatModal(false);
-                    setNewChatName('');
-                  }}
-                >
-                  <Text style={[styles.cancelButtonText, dyn.text]}>Cancel</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.modalButton, styles.createButton]}
-                  onPress={handleCreateConversation}
-                >
-                  <Text style={styles.createButtonText}>Create</Text>
-                </TouchableOpacity>
-              </View>
-            </ScrollView>
-          </View>
+      {/* Image Viewer */}
+      <Modal visible={showImageViewer} transparent animationType="fade" onRequestClose={() => setShowImageViewer(false)}>
+        <View style={{ flex: 1, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' }}>
+          {selectedImageUrl && <Image source={{ uri: selectedImageUrl }} style={{ width: '100%', height: '80%' }} resizeMode="contain" />}
+          <TouchableOpacity 
+             style={{ position: 'absolute', top: 50, right: 20, zIndex: 10, backgroundColor: 'rgba(0,0,0,0.4)', borderRadius: 20, padding: 5 }} 
+             onPress={() => setShowImageViewer(false)}
+          >
+            <Ionicons name="close" size={32} color="#FFF" />
+          </TouchableOpacity>
         </View>
       </Modal>
 
-      {/* Add Member Modal */}
-      <Modal
-        visible={showAddMemberModal}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowAddMemberModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, dyn.card]}>
-            <View style={[styles.modalHeader, dyn.border]}>
-              <Text style={[styles.modalTitle, dyn.text]}>Add Member to Channel</Text>
-              <TouchableOpacity onPress={() => {
-                setShowAddMemberModal(false);
-                setMemberSearchText('');
-                setMemberSuggestions([]);
-              }}>
-                <Ionicons name="close" size={24} color={colors.text} />
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView style={styles.modalBody}>
-              <Text style={[styles.label, dyn.text]}>Search User</Text>
-              <View style={{ position: 'relative' }}>
-                <TextInput
-                  style={[styles.input, dyn.border, { color: colors.text, backgroundColor: isDark ? '#2C2C2C' : '#F5F5F5' }]}
-                  placeholder="Type username to search..."
-                  placeholderTextColor={colors.subText}
-                  value={memberSearchText}
-                  onChangeText={handleMemberSearchInputChange}
-                  autoCapitalize="none"
-                />
-                {loadingMemberSuggestions && (
-                  <ActivityIndicator 
-                    size="small" 
-                    color="#F27121" 
-                    style={{ position: 'absolute', right: 15, top: 15 }} 
-                  />
-                )}
-              </View>
-
-              {/* Member Suggestions */}
-              {memberSuggestions.length > 0 && (
-                <View style={[styles.suggestionsContainer, dyn.card, dyn.border]}>
-                  <Text style={[styles.suggestionsHeader, dyn.sub]}>
-                    Select Member ({memberSuggestions.length} found)
-                  </Text>
-                  {memberSuggestions.map((account) => (
-                    <TouchableOpacity
-                      key={account.log_id}
-                      style={[styles.suggestionItem, dyn.border]}
-                      onPress={() => handleAddMemberToChannel(account)}
-                      disabled={addingMember}
-                    >
-                      <View style={[styles.suggestionAvatar, { backgroundColor: '#F27121' }]}>
-                        <Text style={styles.suggestionAvatarText}>
-                          {account.username.charAt(0).toUpperCase()}
-                        </Text>
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={[styles.suggestionUsername, dyn.text]}>
-                          {account.username}
-                        </Text>
-                        <Text style={[styles.suggestionId, dyn.sub]}>
-                          ID: {account.log_id}
-                        </Text>
-                      </View>
-                      {addingMember ? (
-                        <ActivityIndicator size="small" color="#F27121" />
-                      ) : (
-                        <Ionicons name="person-add" size={20} color="#F27121" />
-                      )}
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              )}
-
-              {/* No Results Message */}
-              {memberSearchText.trim() && !loadingMemberSuggestions && memberSuggestions.length === 0 && (
-                <View style={[styles.noResultsContainer, dyn.border]}>
-                  <Ionicons name="search" size={32} color={colors.subText} />
-                  <Text style={[styles.noResultsText, dyn.sub]}>
-                    No users found matching "{memberSearchText}"
-                  </Text>
-                  <Text style={[styles.noResultsHint, dyn.sub]}>
-                    Try a different username
-                  </Text>
-                </View>
-              )}
-
-              <View style={styles.modalActions}>
-                <TouchableOpacity
-                  style={[styles.modalButton, styles.cancelButton, { borderColor: colors.border }]}
-                  onPress={() => {
-                    setShowAddMemberModal(false);
-                    setMemberSearchText('');
-                    setMemberSuggestions([]);
-                  }}
-                >
-                  <Text style={[styles.cancelButtonText, dyn.text]}>Close</Text>
-                </TouchableOpacity>
-              </View>
-            </ScrollView>
-          </View>
-        </View>
+      {/* Options Sheet */}
+      <Modal visible={showChatOptions} transparent animationType="fade" onRequestClose={closeChatOptions}>
+        <Pressable style={styles.sheetOverlay} onPress={closeChatOptions}>
+          <Animated.View style={[styles.sheetContent, { backgroundColor: colors.card, transform: [{ translateY: optionsSlideAnim }] }]}>
+            <View style={styles.sheetHandle} />
+            <TouchableOpacity style={styles.sheetOption} onPress={() => { closeChatOptions(); }}>
+               <Ionicons name="trash" size={22} color="#ff3b30" /><Text style={{ color: '#ff3b30', marginLeft: 15 }}>Leave Conversation</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        </Pressable>
       </Modal>
 
-      <CustomAlert
-        visible={visible}
-        type={config.type}
-        title={config.title}
-        message={config.message}
-        hint={config.hint}
-        buttonText={config.buttonText}
-        onClose={hideAlert}
-        backgroundColor={colors.card}
-        textColor={colors.text}
-      />
+      <CustomAlert visible={visible} type={config.type} title={config.title} message={config.message} buttonText={config.buttonText} onClose={hideAlert} />
     </SafeAreaView>
   );
 }
@@ -1313,18 +392,16 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottomWidth: 1 },
   headerTitle: { fontSize: 18, fontWeight: 'bold' },
-  iconBtn: { padding: 8, minWidth: 40, minHeight: 40, justifyContent: 'center', alignItems: 'center' },
+  iconBtn: { padding: 4 },
   searchContainer: { flexDirection: 'row', alignItems: 'center', margin: 20, paddingHorizontal: 15, borderRadius: 10, height: 45 },
   searchIcon: { marginRight: 10 },
   searchInput: { flex: 1 },
   listContent: { paddingHorizontal: 20 },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   chatItem: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
+  chatItemInner: { flexDirection: 'row', alignItems: 'center', flex: 1 },
   avatarContainer: { marginRight: 15 },
   avatar: { width: 50, height: 50, borderRadius: 25, justifyContent: 'center', alignItems: 'center' },
   channelIcon: { color: '#FFF', fontSize: 24, fontWeight: 'bold' },
-  avatarText: { color: '#FFF', fontSize: 20, fontWeight: 'bold' },
-  onlineDot: { width: 12, height: 12, borderRadius: 6, backgroundColor: '#2ecc71', position: 'absolute', bottom: 0, right: 0, borderWidth: 2 },
   chatItemContent: { flex: 1, borderBottomWidth: 1, paddingBottom: 15 },
   messageHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 5 },
   chatName: { fontSize: 16, fontWeight: 'bold' },
@@ -1333,256 +410,25 @@ const styles = StyleSheet.create({
   lastMessage: { fontSize: 14, flex: 1, marginRight: 10 },
   unreadBadge: { backgroundColor: '#F27121', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 },
   unreadText: { color: '#FFF', fontSize: 10, fontWeight: 'bold' },
-  
-  // Conversation View Styles
-  conversationHeader: { flex: 1, alignItems: 'center', marginHorizontal: 10 },
-  onlineStatus: { fontSize: 12, marginTop: 2 },
-  conversationContainer: { flex: 1 },
-  messagesContainer: { padding: 20 },
   messageItemContainer: { marginBottom: 15, maxWidth: '75%', alignSelf: 'flex-start' },
   ownMessageContainer: { alignSelf: 'flex-end' },
   systemMessageContainer: { alignSelf: 'center', maxWidth: '100%', marginVertical: 8, alignItems: 'center' },
+  systemMessageBubble: { backgroundColor: 'transparent' },
   systemMessageText: { fontSize: 13, fontStyle: 'italic', textAlign: 'center' },
-  systemMessageTime: { fontSize: 10, marginTop: 2 },
   senderName: { fontSize: 12, marginBottom: 4, marginLeft: 12 },
   messageBubble: { borderRadius: 18, paddingHorizontal: 16, paddingVertical: 10, maxWidth: '100%' },
   ownMessageBubble: { backgroundColor: '#F27121', borderBottomRightRadius: 4 },
-  otherMessageBubble: { borderBottomLeftRadius: 4 },
-  messageContent: { fontSize: 15, lineHeight: 20 },
+  messageText: { fontSize: 15, lineHeight: 20 },
   messageTime: { fontSize: 10, marginTop: 4, alignSelf: 'flex-end' },
-  
-  // Message Input Styles
-  messageInputContainer: { 
-    flexDirection: 'row', 
-    alignItems: 'flex-end', 
-    paddingHorizontal: 15, 
-    paddingVertical: 10, 
-    borderTopWidth: 1,
-    minHeight: 60
-  },
-  attachBtn: { marginRight: 8, marginBottom: 8 },
-  messageInput: { 
-    flex: 1, 
-    minHeight: 38,
-    maxHeight: 100, 
-    paddingHorizontal: 15, 
-    paddingVertical: 10, 
-    fontSize: 15,
-    borderRadius: 20,
-    backgroundColor: 'rgba(0,0,0,0.05)'
-  },
-  sendBtn: { 
-    width: 38, 
-    height: 38, 
-    borderRadius: 19, 
-    backgroundColor: '#F27121', 
-    justifyContent: 'center', 
-    alignItems: 'center',
-    marginLeft: 8,
-    marginBottom: 8
-  },
-  sendBtnDisabled: { opacity: 0.5 },
-  
-  // Modal Styles
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end'
-  },
-  modalContent: {
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    maxHeight: '80%',
-    minHeight: 400
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 20,
-    borderBottomWidth: 1
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: 'bold'
-  },
-  modalBody: {
-    padding: 20
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '600',
-    marginBottom: 10
-  },
-  typeSelector: {
-    flexDirection: 'row',
-    gap: 12
-  },
-  typeButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: 2,
-    gap: 8
-  },
-  typeButtonActive: {
-    borderColor: '#F27121',
-    backgroundColor: 'rgba(242, 113, 33, 0.1)'
-  },
-  typeButtonText: {
-    fontSize: 14,
-    fontWeight: '600'
-  },
-  input: {
-    borderWidth: 1,
-    borderRadius: 10,
-    padding: 15,
-    fontSize: 16
-  },
-  modalActions: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 30
-  },
-  modalButton: {
-    flex: 1,
-    padding: 16,
-    borderRadius: 10,
-    alignItems: 'center'
-  },
-  cancelButton: {
-    borderWidth: 1
-  },
-  cancelButtonText: {
-    fontSize: 16,
-    fontWeight: '600'
-  },
-  createButton: {
-    backgroundColor: '#F27121'
-  },
-  createButtonText: {
-    color: '#FFF',
-    fontSize: 16,
-    fontWeight: '600'
-  },
-  
-  // Account Suggestions Styles
-  suggestionsContainer: {
-    borderWidth: 1,
-    borderRadius: 10,
-    marginTop: 10,
-    maxHeight: 250,
-    overflow: 'hidden'
-  },
-  suggestionsHeader: {
-    fontSize: 12,
-    fontWeight: '600',
-    padding: 12,
-    paddingBottom: 8,
-    textTransform: 'uppercase'
-  },
-  suggestionItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 12,
-    borderTopWidth: 1,
-    gap: 12
-  },
-  suggestionAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center'
-  },
-  suggestionAvatarText: {
-    color: '#FFF',
-    fontSize: 16,
-    fontWeight: 'bold'
-  },
-  suggestionUsername: {
-    fontSize: 16,
-    fontWeight: '600'
-  },
-  suggestionId: {
-    fontSize: 12,
-    marginTop: 2
-  },
-  selectedAccountBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 12,
-    borderRadius: 10,
-    marginTop: 10,
-    gap: 8
-  },
-  selectedAccountText: {
-    flex: 1,
-    fontSize: 14,
-    fontWeight: '600'
-  },
-  noResultsContainer: {
-    alignItems: 'center',
-    padding: 24,
-    borderWidth: 1,
-    borderRadius: 10,
-    borderStyle: 'dashed',
-    marginTop: 10
-  },
-  noResultsText: {
-    fontSize: 14,
-    fontWeight: '600',
-    marginTop: 12
-  },
-  noResultsHint: {
-    fontSize: 12,
-    marginTop: 4
-  },
-
-  // Chat Info Modal Styles
-  chatInfoOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20
-  },
-  chatInfoModal: {
-    width: '85%',
-    maxWidth: 400,
-    borderRadius: 12,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5
-  },
-  chatInfoContent: {
-    padding: 20
-  },
-  chatInfoItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  chatInfoAction: {
-    marginTop: 8,
-    paddingVertical: 4,
-    gap: 16
-  },
-  chatInfoTextContainer: {
-    flex: 1
-  },
-  chatInfoLabel: {
-    fontSize: 12,
-    marginBottom: 4
-  },
-  chatInfoValue: {
-    fontSize: 16,
-    fontWeight: '600'
-  }
+  mediaContainer: { marginBottom: 8, borderRadius: 10, overflow: 'hidden' },
+  messageImage: { width: 220, height: 160, borderRadius: 10 },
+  fileContainer: { flexDirection: 'row', alignItems: 'center', padding: 10, backgroundColor: 'rgba(0,0,0,0.05)', borderRadius: 10 },
+  inputContainer: { flexDirection: 'row', alignItems: 'center', padding: 10, borderTopWidth: 1 },
+  attachBtn: { padding: 10 },
+  messageInput: { flex: 1, borderRadius: 20, paddingHorizontal: 15, paddingVertical: 8, maxHeight: 100 },
+  sendBtn: { padding: 10 },
+  sheetOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  sheetContent: { borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 40 },
+  sheetHandle: { width: 40, height: 4, backgroundColor: '#ccc', borderRadius: 2, alignSelf: 'center', margin: 10 },
+  sheetOption: { flexDirection: 'row', alignItems: 'center', padding: 20 }
 });

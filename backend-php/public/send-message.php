@@ -36,18 +36,23 @@ if (!is_array($body)) {
 $conversationId = $body['conversation_id'] ?? '';
 $senderId = $body['sender_id'] ?? '';
 $content = trim($body['content'] ?? '');
+$mediaUrl = $body['media_url'] ?? null;
+$mediaType = $body['media_type'] ?? null;
 
-if (empty($conversationId) || empty($senderId) || empty($content)) {
+// Allow empty content if there is a media attachment
+if (empty($conversationId) || empty($senderId) || (empty($content) && empty($mediaUrl))) {
     http_response_code(400);
-    echo json_encode(['ok' => false, 'message' => 'Missing required fields']);
+    echo json_encode(['ok' => false, 'message' => 'Missing required fields or attachment']);
     exit;
 }
 
-// Insert message into Supabase (created_at defaults in DB if not sent)
+// Insert message into Supabase
 [$status, $data, $err] = supabase_insert('messages', [
     'conversation_id' => (int)$conversationId,
     'sender_id' => (int)$senderId,
     'content' => $content,
+    'media_url' => $mediaUrl,
+    'media_type' => $mediaType,
 ]);
 
 if ($err) {

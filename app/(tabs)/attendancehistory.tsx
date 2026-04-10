@@ -59,12 +59,15 @@ export default function AttendanceHistory() {
 
   function formatTime(timeStr: string | null) {
     if (!timeStr) return '--:--';
-    // assuming timeStr is 'HH:MM:SS'
+    // The DB stores time as 'HH:MM:SS' string in Manila time.
     const parts = timeStr.split(':');
     if (parts.length < 2) return timeStr;
-    const date = new Date();
-    date.setHours(parseInt(parts[0], 10), parseInt(parts[1], 10));
-    return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    const h = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10);
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    const h12 = h % 12 || 12;
+    // Just string formatting avoids JS Date offset issues entirely
+    return `${h12}:${m.toString().padStart(2, '0')} ${ampm}`;
   }
 
   function formatDate(dateStr: string) {

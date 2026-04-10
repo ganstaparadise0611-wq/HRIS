@@ -39,7 +39,7 @@ define(
 );
 
 // --- Supabase helper functions (inline) ---
-function supabase_request(string $method, string $path, ?array $body = null, array $extraHeaders = []): array
+function supabase_request(string $method, string $path, $body = null, array $extraHeaders = []): array
 {
     $url = rtrim(SUPABASE_URL, '/') . '/' . ltrim($path, '/');
 
@@ -47,24 +47,40 @@ function supabase_request(string $method, string $path, ?array $body = null, arr
     if (function_exists('curl_init')) {
         $ch = curl_init($url);
 
-        $headers = array_merge([
-            'Content-Type: application/json',
+        // Check if we are sending binary data (e.g. for Storage)
+        $isJson = true;
+        foreach ($extraHeaders as $h) {
+            if (stripos($h, 'Content-Type:') !== false && stripos($h, 'application/json') === false) {
+                $isJson = false;
+                break;
+            }
+        }
+
+        $headers = [
             'apikey: ' . SUPABASE_API_KEY,
             'Authorization: Bearer ' . SUPABASE_API_KEY,
-        ], $extraHeaders);
+        ];
+        
+        // Add Content-Type: application/json only if not specified
+        if ($isJson) {
+            $headers[] = 'Content-Type: application/json';
+        }
+        
+        $headers = array_merge($headers, $extraHeaders);
 
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_CUSTOMREQUEST  => strtoupper($method),
             CURLOPT_HTTPHEADER     => $headers,
-            CURLOPT_TIMEOUT        => 20, // 20 second timeout (increased for slow connections)
-            CURLOPT_CONNECTTIMEOUT => 10,  // 10 second connection timeout (increased)
+            CURLOPT_TIMEOUT        => 30, // Increased for binary uploads
+            CURLOPT_CONNECTTIMEOUT => 15,
             CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_SSL_VERIFYHOST => 2,
         ]);
 
         if ($body !== null) {
-            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($body));
+            $payload = ($isJson && !is_string($body)) ? json_encode($body) : $body;
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
         }
 
         $responseBody = curl_exec($ch);
@@ -147,6 +163,89 @@ function supabase_request(string $method, string $path, ?array $body = null, arr
     }
 
     return [$statusCode, $decoded, null];
+}
+
+/**
+ * Execute multiple requests in parallel
+ * @param array $requests Array of ['method', 'path', 'body', 'extraHeaders']
+ * @return array Array of [$status, $data, $err] for each request
+ */
+function supabase_request_multi(array $requests): array
+{
+    if (empty($requests)) return [];
+    if (!function_exists('curl_multi_init')) {
+        // Fallback to sequential if curl_multi is unavailable
+        $results = [];
+        foreach ($requests as $req) {
+            $results[] = supabase_request($req['method'], $req['path'], $req['body'] ?? null, $req['extraHeaders'] ?? []);
+        }
+        return $results;
+    }
+
+    $mh = curl_multi_init();
+    $handles = [];
+    $results = [];
+
+    foreach ($requests as $i => $req) {
+        $url = rtrim(SUPABASE_URL, '/') . '/' . ltrim($req['path'], '/');
+        $ch = curl_init($url);
+        
+        $headers = array_merge([
+            'Content-Type: application/json',
+            'apikey: ' . SUPABASE_API_KEY,
+            'Authorization: Bearer ' . SUPABASE_API_KEY,
+        ], $req['extraHeaders'] ?? []);
+
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CUSTOMREQUEST  => strtoupper($req['method']),
+            CURLOPT_HTTPHEADER     => $headers,
+            CURLOPT_TIMEOUT        => 15,
+            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
+        ]);
+
+        if (isset($req['body'])) {
+            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($req['body']));
+        }
+
+        curl_multi_add_handle($mh, $ch);
+        $handles[$i] = $ch;
+    }
+
+    // Execute handles in parallel
+    $active = null;
+    do {
+        $mrc = curl_multi_exec($mh, $active);
+    } while ($mrc == CURLM_CALL_MULTI_PERFORM);
+
+    while ($active && $mrc == CURLM_OK) {
+        if (curl_multi_select($mh) == -1) {
+            usleep(100);
+        }
+        do {
+            $mrc = curl_multi_exec($mh, $active);
+        } while ($mrc == CURLM_CALL_MULTI_PERFORM);
+    }
+
+    // Collect results
+    foreach ($handles as $i => $ch) {
+        $responseBody = curl_multi_getcontent($ch);
+        $statusCode   = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlErr      = curl_error($ch);
+        
+        $decoded = ($curlErr) ? null : json_decode($responseBody, true);
+        $err = ($curlErr) ? $curlErr : (json_last_error() !== JSON_ERROR_NONE ? 'JSON Decode Error' : null);
+        
+        $results[$i] = [$statusCode, $decoded, $err];
+        
+        curl_multi_remove_handle($mh, $ch);
+        curl_close($ch);
+    }
+
+    curl_multi_close($mh);
+    return $results;
 }
 
 function supabase_insert(string $table, array $row): array

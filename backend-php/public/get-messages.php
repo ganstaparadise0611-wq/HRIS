@@ -53,29 +53,51 @@ if ($status !== 200) {
     exit;
 }
 
-// Fetch sender information for each message
+// Step 2: Fetch sender information for all messages in BATCH (fixes N+1 query problem)
 $messages = [];
-if (is_array($data)) {
+if (is_array($data) && count($data) > 0) {
+    // Collect unique sender IDs
+    $senderIds = [];
     foreach ($data as $msg) {
-        // Fetch sender username
+        $sid = (string)$msg['sender_id'];
+        if ($sid !== '') {
+            $senderIds[] = $sid;
+        }
+    }
+    
+    $senderIds = array_unique($senderIds);
+    $senderMap = [];
+    
+    if (!empty($senderIds)) {
+        // Fetch all senders in ONE request
+        $idList = implode(',', $senderIds);
         [$senderStatus, $senderData] = supabase_request(
-            'GET',
-            "rest/v1/accounts?log_id=eq.{$msg['sender_id']}&select=log_id,username"
+            'GET', 
+            "rest/v1/accounts?log_id=in.({$idList})&select=log_id,username"
         );
         
-        $sender = null;
-        if ($senderStatus === 200 && is_array($senderData) && count($senderData) > 0) {
-            $sender = [
-                'log_id' => (string)$senderData[0]['log_id'],
-                'username' => (string)$senderData[0]['username']
-            ];
+        if ($senderStatus === 200 && is_array($senderData)) {
+            foreach ($senderData as $s) {
+                $senderMap[(string)$s['log_id']] = [
+                    'log_id' => (string)$s['log_id'],
+                    'username' => (string)$s['username']
+                ];
+            }
         }
+    }
+
+    // Map messages back with sender info
+    foreach ($data as $msg) {
+        $sid = (string)$msg['sender_id'];
+        $sender = $senderMap[$sid] ?? null;
         
         $messages[] = [
             'id' => (string)$msg['id'],
             'conversation_id' => (string)$msg['conversation_id'],
-            'sender_id' => (string)$msg['sender_id'],
+            'sender_id' => $sid,
             'content' => $msg['content'],
+            'media_url' => $msg['media_url'] ?? null,
+            'media_type' => $msg['media_type'] ?? null,
             'created_at' => $msg['created_at'],
             'edited_at' => $msg['edited_at'] ?? null,
             'is_deleted' => $msg['is_deleted'] ?? false,

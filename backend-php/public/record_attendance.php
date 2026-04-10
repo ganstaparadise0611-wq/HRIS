@@ -58,6 +58,10 @@ if ($status !== 200 || !is_array($empData) || count($empData) === 0) {
     exit;
 }
 $emp_id = (int)$empData[0]['emp_id'];
+
+// Set timezone to Manila to ensure correct local time insertion
+date_default_timezone_set('Asia/Manila');
+
 $today = date('Y-m-d');
 $nowTime = date('H:i:s');
 

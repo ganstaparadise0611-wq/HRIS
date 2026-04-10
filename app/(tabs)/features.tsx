@@ -16,8 +16,8 @@ export default function FeaturesScreen() {
     sub: { color: colors.subText },
     card: { backgroundColor: colors.card },
     border: { borderColor: colors.border },
-    iconBg: { backgroundColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.06)' },
-    accent: isDark ? '#6B9EFF' : '#2563eb',
+    iconBg: { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' },
+    accent: '#F27121',
   };
 
   const features = [
@@ -25,6 +25,10 @@ export default function FeaturesScreen() {
     { label: 'Overtime', icon: 'clock-fast', route: '/userovertime', lib: MaterialCommunityIcons },
     { label: 'Leave', icon: 'calendar-outline', route: '/userleave', lib: Ionicons },
     { label: 'On Duty', icon: 'airplane-outline', route: '/useronduty', lib: Ionicons },
+    { label: 'Att. List', icon: 'list-outline', route: '/(tabs)/attendancehistory', lib: Ionicons },
+    { label: 'Correction', icon: 'time-outline', route: '/(tabs)/userattendancecorrection', lib: Ionicons },
+    { label: 'Shift Sched', icon: 'moon-outline', route: '/(tabs)/shiftschedule', lib: Ionicons },
+    { label: 'Timesheet', icon: 'journal-outline', route: '/(tabs)/usertimesheet', lib: Ionicons },
   ];
 
   return (
@@ -110,6 +114,6 @@ const styles = StyleSheet.create({
   gridLabel: {
     fontSize: 15,
     fontWeight: '600',
+    textAlign: 'center',
   },
 });
-

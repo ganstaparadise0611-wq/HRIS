@@ -1,9 +1,8 @@
 <?php
-// Get all conversations for a user
+// Get all conversations for a user - HIGHLY OPTIMIZED with Parallel Requests
 //
 // GET /get-conversations.php?user_id=123
 //
-// Returns list of conversations with last message and unread count
 
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET, OPTIONS');
@@ -32,130 +31,166 @@ if (empty($userId)) {
     exit;
 }
 
-// Step 1: Fetch user's conversation IDs from conversation_participants
+// Step 1: Fetch user's conversation IDs
 [$status, $participantData, $err] = supabase_request(
     'GET',
     "rest/v1/conversation_participants?user_id=eq.{$userId}&select=conversation_id"
 );
 
-if ($err) {
-    error_log("Error fetching conversation participants: " . $err);
-    http_response_code(500);
+if ($err || $status !== 200) {
+    http_response_code($status ?: 500);
     echo json_encode(['ok' => false, 'message' => 'Database error', 'detail' => $err]);
     exit;
 }
 
-if ($status !== 200) {
-    http_response_code($status);
-    echo json_encode(['ok' => false, 'message' => 'Failed to fetch participants', 'status' => $status]);
+if (!is_array($participantData) || count($participantData) === 0) {
+    echo json_encode(['ok' => true, 'conversations' => []]);
     exit;
 }
 
-// Extract conversation and fetch details
-$conversations = [];
-if (is_array($participantData) && count($participantData) > 0) {
-    foreach ($participantData as $participant) {
-        $convId = $participant['conversation_id'];
-        
-        // Step 2: Fetch conversation details
-        [$convStatus, $convData, $convErr] = supabase_request(
-            'GET',
-            "rest/v1/conversations?id=eq.{$convId}&select=*"
-        );
-        
-        if ($convStatus === 200 && is_array($convData) && count($convData) > 0) {
-            $conv = $convData[0];
-            
-            // For DMs: get the other participant's user_id (log_id) for profile picture
-            $otherUserId = null;
-            $dmDisplayName = null; // For DMs we show the other person's name (Messenger-style)
-            if ($conv['type'] === 'dm') {
-                [$partStatus, $partData] = supabase_request(
-                    'GET',
-                    "rest/v1/conversation_participants?conversation_id=eq.{$convId}&select=user_id"
-                );
-                if ($partStatus === 200 && is_array($partData) && count($partData) > 0) {
-                    foreach ($partData as $p) {
-                        $pid = (string)($p['user_id'] ?? '');
-                        if ($pid !== '' && $pid !== (string)$userId) {
-                            $otherUserId = $pid;
-                            break;
-                        }
-                    }
-                }
-                // Fetch the other user's username for display name (so you see their name, not yours)
-                if ($otherUserId !== null) {
-                    [$unStatus, $unData] = supabase_request(
-                        'GET',
-                        "rest/v1/accounts?log_id=eq.{$otherUserId}&select=username"
-                    );
-                    if ($unStatus === 200 && is_array($unData) && count($unData) > 0) {
-                        $dmDisplayName = $unData[0]['username'];
-                    }
-                }
-            }
-            
-            // Step 3: Fetch last message
-            [$msgStatus, $msgData] = supabase_request(
-                'GET',
-                "rest/v1/messages?conversation_id=eq.{$convId}&order=created_at.desc&limit=1&select=content,created_at,sender_id"
-            );
-            
-            $lastMessage = null;
-            $lastMessageTime = null;
-            if ($msgStatus === 200 && is_array($msgData) && count($msgData) > 0) {
-                $lastMsg = $msgData[0];
-                $lastMessageTime = $lastMsg['created_at'];
+$convIds = array_unique(array_column($participantData, 'conversation_id'));
+$idList = implode(',', $convIds);
 
-                // Preview: show sender name, or "You" when the current user sent it (Messenger-style)
-                $lastSenderId = (string)($lastMsg['sender_id'] ?? '');
-                $isCurrentUserSender = ($lastSenderId !== '' && $lastSenderId === (string)$userId);
+// Step 2 & 3: Fetch conversation details and ALL participants for these IDs in parallel
+$multiReqs = [
+    'details' => ['method' => 'GET', 'path' => "rest/v1/conversations?id=in.({$idList})&select=*"],
+    'participants' => ['method' => 'GET', 'path' => "rest/v1/conversation_participants?conversation_id=in.({$idList})&select=conversation_id,user_id"]
+];
 
-                if ($conv['type'] === 'channel') {
-                    [$senderStatus, $senderData] = supabase_request(
-                        'GET',
-                        "rest/v1/accounts?log_id=eq.{$lastMsg['sender_id']}&select=username"
-                    );
-                    $senderName = 'Unknown';
-                    if ($senderStatus === 200 && is_array($senderData) && count($senderData) > 0) {
-                        $senderName = $senderData[0]['username'];
-                    }
-                    $lastMessage = $senderName . ': ' . $lastMsg['content'];
-                } else {
-                    // DM: show "You: msg" when you sent it, "TheirName: msg" when they sent it
-                    if ($isCurrentUserSender) {
-                        $lastMessage = 'You: ' . $lastMsg['content'];
-                    } else {
-                        [$senderStatus, $senderData] = supabase_request(
-                            'GET',
-                            "rest/v1/accounts?log_id=eq.{$lastMsg['sender_id']}&select=username"
-                        );
-                        $senderName = 'Unknown';
-                        if ($senderStatus === 200 && is_array($senderData) && count($senderData) > 0) {
-                            $senderName = $senderData[0]['username'];
-                        }
-                        $lastMessage = $senderName . ': ' . $lastMsg['content'];
-                    }
-                }
-            }
-            
-            $convPayload = [
-                'id' => $conv['id'],
-                'name' => ($conv['type'] === 'dm' && $dmDisplayName !== null) ? $dmDisplayName : $conv['name'],
-                'type' => $conv['type'],
-                'last_message' => $lastMessage,
-                'last_message_time' => $lastMessageTime,
-                'unread_count' => 0 // TODO: Implement unread count
-            ];
-            if ($otherUserId !== null) {
-                $convPayload['other_user_id'] = $otherUserId;
-            }
-            $conversations[] = $convPayload;
+$multiResults = supabase_request_multi($multiReqs);
+
+$convStatus = $multiResults['details'][0];
+$convDetailsMap = $multiResults['details'][1];
+$partsStatus = $multiResults['participants'][0];
+$allParts = $multiResults['participants'][1];
+
+if ($convStatus !== 200 || !is_array($convDetailsMap)) {
+    http_response_code(500);
+    echo json_encode(['ok' => false, 'message' => 'Failed to fetch conversation details']);
+    exit;
+}
+
+// Group conversations by ID
+$chats = [];
+foreach ($convDetailsMap as $c) {
+    $chats[$c['id']] = $c;
+}
+
+// Identify DM other participants
+$dmOtherUserIds = [];
+$convOtherUserMap = [];
+if ($partsStatus === 200 && is_array($allParts)) {
+    foreach ($allParts as $p) {
+        $cid = $p['conversation_id'];
+        $pid = (string)$p['user_id'];
+        
+        if ($pid !== (string)$userId && isset($chats[$cid]) && $chats[$cid]['type'] === 'dm') {
+            $dmOtherUserIds[] = $pid;
+            $convOtherUserMap[$cid] = $pid;
         }
     }
 }
 
+// Step 4: Fetch usernames for DM participants identified (Batch)
+$userNamesMap = [];
+if (!empty($dmOtherUserIds)) {
+    $dmOtherUserIds = array_unique($dmOtherUserIds);
+    $uIdList = implode(',', $dmOtherUserIds);
+    [$uStatus, $uData] = supabase_request('GET', "rest/v1/accounts?log_id=in.({$uIdList})&select=log_id,username");
+    if ($uStatus === 200 && is_array($uData)) {
+        foreach ($uData as $u) {
+            $userNamesMap[(string)$u['log_id']] = $u['username'];
+        }
+    }
+}
+
+// Step 5: Fetch last message for each conversation in PARALLEL
+$msgReqs = [];
+foreach ($convIds as $cid) {
+    $msgReqs[$cid] = [
+        'method' => 'GET',
+        'path' => "rest/v1/messages?conversation_id=eq.{$cid}&order=created_at.desc&limit=1&select=content,created_at,sender_id,media_url"
+    ];
+}
+
+$msgResults = supabase_request_multi($msgReqs);
+
+$tempResults = [];
+$senderIdsToFetch = [];
+
+foreach ($convIds as $cid) {
+    [$mStatus, $mData, $mErr] = $msgResults[$cid];
+    $lastMsg = ($mStatus === 200 && is_array($mData) && count($mData) > 0) ? $mData[0] : null;
+    
+    if ($lastMsg) {
+        $senderIdsToFetch[] = (string)$lastMsg['sender_id'];
+    }
+    
+    $otherUserId = $convOtherUserMap[$cid] ?? null;
+    $dmDisplayName = $otherUserId ? ($userNamesMap[$otherUserId] ?? null) : null;
+    $chat = $chats[$cid];
+    
+    $tempResults[] = [
+        'id' => $chat['id'],
+        'name' => ($chat['type'] === 'dm' && $dmDisplayName) ? $dmDisplayName : $chat['name'],
+        'type' => $chat['type'],
+        'last_message_raw' => $lastMsg,
+        'other_user_id' => $otherUserId
+    ];
+}
+
+// Step 6: Batch fetch all sender names for previews identified in step 5
+if (!empty($senderIdsToFetch)) {
+    $senderIdsToFetch = array_unique($senderIdsToFetch);
+    $sIdList = implode(',', $senderIdsToFetch);
+    [$sStatus, $sData] = supabase_request('GET', "rest/v1/accounts?log_id=in.({$sIdList})&select=log_id,username");
+    if ($sStatus === 200 && is_array($sData)) {
+        foreach ($sData as $s) {
+            $userNamesMap[(string)$s['log_id']] = $s['username'];
+        }
+    }
+}
+
+// Step 7: Final assembly
+$finalConversations = [];
+foreach ($tempResults as $res) {
+    $lastMsg = $res['last_message_raw'];
+    $lastMessageString = 'No messages yet';
+    $lastMessageTime = null;
+    
+    if ($lastMsg) {
+        $lastMessageTime = $lastMsg['created_at'];
+        $senderId = (string)$lastMsg['sender_id'];
+        $isYou = ($senderId === (string)$userId);
+        $senderName = $userNamesMap[$senderId] ?? 'Unknown';
+        
+        $content = $lastMsg['content'];
+        if (empty($content) && !empty($lastMsg['media_url'])) {
+            $content = '[Attachment]';
+        }
+        
+        if ($isYou) {
+            $lastMessageString = 'You: ' . $content;
+        } else {
+            $lastMessageString = $senderName . ': ' . $content;
+        }
+    }
+    
+    $payload = [
+        'id' => $res['id'],
+        'name' => $res['name'],
+        'type' => $res['type'],
+        'last_message' => $lastMessageString,
+        'last_message_time' => $lastMessageTime,
+        'unread_count' => 0
+    ];
+    if ($res['other_user_id']) {
+        $payload['other_user_id'] = $res['other_user_id'];
+    }
+    $finalConversations[] = $payload;
+}
+
 echo json_encode([
     'ok' => true,
-    'conversations' => $conversations
+    'conversations' => $finalConversations
 ]);

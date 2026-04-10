@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import { Camera, CameraView } from 'expo-camera';
 import { useRouter } from 'expo-router';
+import { useTheme } from './ThemeContext';
 import React, { useEffect, useRef, useState } from 'react';
 import {
     BackHandler,
@@ -27,6 +28,15 @@ import { registerPushTokenAfterLogin } from '../../constants/notifications';
 
 export default function UserLogin() {
   const router = useRouter();
+  const { colors, theme } = useTheme();
+  const isDark = theme === 'dark';
+  const dyn = {
+    bg: { backgroundColor: colors.background },
+    text: { color: colors.text },
+    sub: { color: colors.subText },
+    card: { backgroundColor: colors.card },
+    inputBg: { backgroundColor: isDark ? '#1A1A1A' : '#FAFAFA', borderColor: colors.border, color: colors.text }
+  };
   const { visible, config, showAlert, hideAlert } = useCustomAlert();
   const [keepLogged, setKeepLogged] = useState(false);
   const [username, setUsername] = useState('');
@@ -299,9 +309,11 @@ export default function UserLogin() {
       }
 
       // Generate QR code based on face data (unique hash)
-      // Create a unique identifier combining username, timestamp, and face hash
+      // Use a stable identifier that NEVER changes (log_id is set after signup response).
+      // We'll use a temporary placeholder — it will be replaced with log_id after signup.
       const timestamp = Date.now();
       const faceHash = generateFaceHash(capturedBase64);
+      // Temporary QR — will be overwritten with log_id-based QR after account creation
       const qrCodeData = `USER:${username}|HASH:${faceHash}|TIME:${timestamp}`;
 
       const backendUrl = getBackendUrl();
@@ -374,6 +386,19 @@ export default function UserLogin() {
       }
 
       console.log('Account created successfully:', result);
+
+      // After we know the log_id, regenerate the QR with the stable LOGID format
+      // and update the account record so username changes never break scanning.
+      if (result.user?.log_id) {
+        const stableQr = `LOGID:${result.user.log_id}|HASH:${faceHash}|TIME:${timestamp}`;
+        try {
+          await fetch(`${backendUrl}/update-qr.php`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'ngrok-skip-browser-warning': 'true' },
+            body: JSON.stringify({ log_id: result.user.log_id, qr_code: stableQr }),
+          });
+        } catch (_) { /* non-critical – existing QR still works via fallback */ }
+      }
 
       showAlert({ 
         type: 'success', 
@@ -521,6 +546,7 @@ export default function UserLogin() {
     }
   }, [isSignUp]);
 
+
   const toggleMode = () => {
     setIsSignUp(!isSignUp);
     setUsername('');
@@ -538,8 +564,8 @@ export default function UserLogin() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" />
+    <SafeAreaView style={[styles.container, dyn.bg]}>
+      <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
 
       <KeyboardAvoidingView 
         behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -557,33 +583,33 @@ export default function UserLogin() {
           </View>
 
           {/* LOGIN FORM */}
-          <View style={styles.formContainer}>
+          <View style={[styles.formContainer, dyn.card]}>
             <ScrollView 
               style={styles.formScrollView}
               contentContainerStyle={styles.formScrollContent}
               showsVerticalScrollIndicator={false}
             >
-              <Text style={styles.headerTitle}>{isSignUp ? 'Create Account' : 'Welcome Back'}</Text>
-              <Text style={styles.headerSubtitle}>
+              <Text style={[styles.headerTitle, dyn.text]}>{isSignUp ? 'Create Account' : 'Welcome Back'}</Text>
+              <Text style={[styles.headerSubtitle, dyn.sub]}>
                 {isSignUp ? 'Sign up to access HR Portal' : 'Sign in to access HR Portal'}
               </Text>
 
-              <Text style={styles.label}>Username / Email</Text>
+              <Text style={[styles.label, dyn.sub]}>Username / Email</Text>
               <TextInput 
-                style={styles.input} 
+                style={[styles.input, dyn.inputBg]} 
                 placeholder="Enter your username"
-                placeholderTextColor="#666"
+                placeholderTextColor={isDark ? "#666" : "#A0A0A0"}
                 autoCapitalize="none"
                 value={username}
                 onChangeText={setUsername}
               />
 
-              <Text style={styles.label}>Password</Text>
-              <View style={styles.passwordContainer}>
+              <Text style={[styles.label, dyn.sub]}>Password</Text>
+              <View style={[styles.passwordContainer, dyn.inputBg]}>
                 <TextInput 
-                  style={styles.passwordInput} 
+                  style={[styles.passwordInput, { color: colors.text }]} 
                   placeholder="Enter your password"
-                  placeholderTextColor="#666"
+                  placeholderTextColor={isDark ? "#666" : "#A0A0A0"}
                   secureTextEntry={!showPassword} 
                   value={password}
                   onChangeText={setPassword}
@@ -601,26 +627,26 @@ export default function UserLogin() {
                 <>
                   <Text style={[styles.label, { marginTop: 15 }]}>Full Name *</Text>
                   <TextInput 
-                    style={styles.input} 
+                    style={[styles.input, dyn.inputBg]} 
                     placeholder="Enter your full name"
-                    placeholderTextColor="#666"
+                    placeholderTextColor={isDark ? "#666" : "#A0A0A0"}
                     value={name}
                     onChangeText={setName}
                   />
 
-                  <Text style={styles.label}>Phone Number</Text>
+                  <Text style={[styles.label, dyn.sub]}>Phone Number</Text>
                   <TextInput 
-                    style={styles.input} 
+                    style={[styles.input, dyn.inputBg]} 
                     placeholder="Enter phone number"
-                    placeholderTextColor="#666"
+                    placeholderTextColor={isDark ? "#666" : "#A0A0A0"}
                     keyboardType="phone-pad"
                     value={phone}
                     onChangeText={setPhone}
                   />
 
-                  <Text style={styles.label}>Birthday</Text>
+                  <Text style={[styles.label, dyn.sub]}>Birthday</Text>
                   <TouchableOpacity
-                    style={[styles.input, styles.datePickerButton]}
+                    style={[styles.input, dyn.inputBg, styles.datePickerButton]}
                     onPress={() => {
                       if (birthday) {
                         const date = new Date(birthday);
@@ -637,7 +663,7 @@ export default function UserLogin() {
                     <Text style={{ color: '#F27121' }}>📅</Text>
                   </TouchableOpacity>
 
-                  <Text style={styles.label}>Gender</Text>
+                  <Text style={[styles.label, dyn.sub]}>Gender</Text>
                   <View style={styles.genderContainer}>
                     <TouchableOpacity
                       style={[
@@ -673,29 +699,29 @@ export default function UserLogin() {
                     </TouchableOpacity>
                   </View>
 
-                  <Text style={styles.label}>Address</Text>
+                  <Text style={[styles.label, dyn.sub]}>Address</Text>
                   <TextInput 
                     style={[styles.input, styles.textArea]} 
                     placeholder="Enter your address"
-                    placeholderTextColor="#666"
+                    placeholderTextColor={isDark ? "#666" : "#A0A0A0"}
                     multiline
                     numberOfLines={3}
                     value={address}
                     onChangeText={setAddress}
                   />
 
-                  <Text style={styles.label}>Role</Text>
+                  <Text style={[styles.label, dyn.sub]}>Role</Text>
                   <TextInput 
-                    style={styles.input} 
+                    style={[styles.input, dyn.inputBg]} 
                     placeholder="Enter your role (e.g., Employee)"
-                    placeholderTextColor="#666"
+                    placeholderTextColor={isDark ? "#666" : "#A0A0A0"}
                     value={role}
                     onChangeText={setRole}
                   />
 
-                  <Text style={styles.label}>Department</Text>
+                  <Text style={[styles.label, dyn.sub]}>Department</Text>
                   <TouchableOpacity
-                    style={[styles.input, styles.datePickerButton]}
+                    style={[styles.input, dyn.inputBg, styles.datePickerButton]}
                     onPress={() => setShowDeptPicker(true)}
                   >
                     <Text style={{ color: deptId ? '#fff' : '#666' }}>
@@ -709,7 +735,7 @@ export default function UserLogin() {
               {/* FACE CAPTURE SECTION - Only show in Sign Up mode */}
           {isSignUp && (
             <View style={styles.faceSection}>
-              <Text style={styles.label}>Face Recognition</Text>
+              <Text style={[styles.label, dyn.sub]}>Face Recognition</Text>
               <TouchableOpacity 
                 style={styles.captureButton}
                 onPress={requestCameraPermission}
@@ -746,7 +772,7 @@ export default function UserLogin() {
                       onValueChange={() => setKeepLogged(!keepLogged)}
                       value={keepLogged}
                     />
-                    <Text style={styles.toggleText}>Keep me logged in</Text>
+                    <Text style={[styles.toggleText, dyn.sub]}>Keep me logged in</Text>
                   </View>
                   <TouchableOpacity onPress={() => router.push('/forgotpassword')}>
                     <Text style={styles.forgotPassword}>Forgot Password?</Text>
@@ -767,7 +793,7 @@ export default function UserLogin() {
 
               {/* Toggle between Login and Sign Up */}
               <View style={styles.switchModeContainer}>
-                <Text style={styles.switchModeText}>
+                <Text style={[styles.switchModeText, dyn.sub]}>
                   {isSignUp ? 'Already have an account?' : "Don't have an account?"}
                 </Text>
                 <TouchableOpacity onPress={toggleMode}>
@@ -960,7 +986,10 @@ export default function UserLogin() {
         message={config.message}
         hint={config.hint}
         buttonText={config.buttonText}
+        cancelText={config.cancelText}
         onClose={hideAlert}
+        onConfirm={config.onClose}
+        onCancel={config.onCancel}
         backgroundColor="#1c1c1e"
         textColor="#ffffff"
       />

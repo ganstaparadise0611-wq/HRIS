@@ -119,6 +119,7 @@ export default function UserMenu() {
       title: 'Logout',
       message: 'Are you sure you want to log out?',
       buttonText: 'Logout',
+      cancelText: 'Cancel',
       onClose: async () => {
         try {
           // Clear all session data including remember-me
@@ -459,12 +460,10 @@ export default function UserMenu() {
 
       <CustomAlert
         visible={visible}
-        type={config.type}
-        title={config.title}
-        message={config.message}
-        hint={config.hint}
-        buttonText={config.buttonText}
+        {...config}
         onClose={hideAlert}
+        onConfirm={config.onClose}
+        onCancel={config.onCancel}
         backgroundColor={colors.card}
         textColor={colors.text}
       />

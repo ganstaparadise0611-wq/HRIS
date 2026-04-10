@@ -50,6 +50,14 @@ export default function UserAttendance() {
   const [isLoading, setIsLoading] = useState(true);
   const [qrVerified, setQrVerified] = useState(false);
   const [lastScannedQr, setLastScannedQr] = useState<string | null>(null);
+
+  // Shift schedule state
+  const [shiftName,       setShiftName]       = useState('Regular');
+  const [shiftStart,      setShiftStart]       = useState('08:00');
+  const [shiftEnd,        setShiftEnd]         = useState('17:00');
+  const [gracePeriodMins, setGracePeriodMins]  = useState(0);
+  const [isLate,          setIsLate]           = useState(false);
+  const [lateByText,      setLateByText]       = useState('');
   
   // Modal states
   const [showResultModal, setShowResultModal] = useState(false);
@@ -74,6 +82,42 @@ export default function UserAttendance() {
     border: { borderColor: colors.border }
   };
 
+  // ── Fetch shift schedule on mount ─────────────────────────────────────────
+  useEffect(() => {
+    const fetchShift = async () => {
+      try {
+        const userId = await AsyncStorage.getItem('userId');
+        if (!userId) return;
+
+        // Get emp_id from employees table
+        const { SUPABASE_URL, SUPABASE_ANON_KEY } = await import('../../constants/backend-config');
+        const empRes  = await fetch(
+          `${SUPABASE_URL}/rest/v1/employees?log_id=eq.${userId}&select=emp_id&limit=1`,
+          { headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } }
+        );
+        const empData = await empRes.json();
+        if (!empData || empData.length === 0) return;
+        const empId = empData[0].emp_id;
+
+        const backendUrl = getBackendUrl();
+        const shiftRes  = await fetch(
+          `${backendUrl}/get-shift.php?emp_id=${empId}`,
+          { headers: { 'ngrok-skip-browser-warning': 'true' } }
+        );
+        const shiftData = await shiftRes.json();
+        if (shiftData.ok && shiftData.shift) {
+          const s = shiftData.shift;
+          const fmt = (t: string) => t.substring(0, 5);
+          setShiftName(s.shift_name || 'Regular');
+          setShiftStart(fmt(s.start_time  || '08:00:00'));
+          setShiftEnd(fmt(s.end_time    || '17:00:00'));
+          setGracePeriodMins(s.grace_period_minutes || 0);
+        }
+      } catch (_) {}
+    };
+    fetchShift();
+  }, []);
+
   useEffect(() => {
     const checkStatus = async () => {
       try {
@@ -87,6 +131,36 @@ export default function UserAttendance() {
     };
     checkStatus();
   }, []);
+
+  // ── Recompute lateness if loaded from storage ───────────────────────────
+  useEffect(() => {
+    if (!isClockedIn || !clockInTime || !shiftStart) return;
+
+    const match = clockInTime.match(/(\d+):(\d+)\s*(AM|PM)?/i);
+    if (!match) return;
+
+    let h = parseInt(match[1], 10);
+    const m = parseInt(match[2], 10);
+    const ampm = match[3] ? match[3].toUpperCase() : null;
+
+    if (ampm === 'PM' && h < 12) h += 12;
+    if (ampm === 'AM' && h === 12) h = 0;
+
+    const [sh, sm] = shiftStart.split(':').map(Number);
+    const shiftStartMins = sh * 60 + sm + gracePeriodMins;
+    const clockInMins = h * 60 + m;
+
+    if (clockInMins > shiftStartMins) {
+      setIsLate(true);
+      const lateMins = clockInMins - (sh * 60 + sm);
+      const lh = Math.floor(lateMins / 60);
+      const lm = lateMins % 60;
+      setLateByText(lh > 0 ? `${lh}h ${lm}m` : `${lm} min`);
+    } else {
+      setIsLate(false);
+      setLateByText('');
+    }
+  }, [clockInTime, shiftStart, gracePeriodMins, isClockedIn]);
 
   useEffect(() => { if (permission && !permission.granted) requestPermission(); }, [permission]);
 
@@ -197,12 +271,27 @@ export default function UserAttendance() {
   const formattedDate = currentTime.toDateString();
 
   const validateQrForCurrentUser = async (qrData: string): Promise<boolean> => {
+    const storedUserId   = await AsyncStorage.getItem('userId');
     const storedUsername = await AsyncStorage.getItem('username');
-    if (!storedUsername) {
-      throw new Error('User not logged in (missing username). Please log in again.');
+
+    if (!storedUserId && !storedUsername) {
+      throw new Error('User not logged in. Please log in again.');
     }
-    const marker = `USER:${storedUsername}|`;
-    return qrData.includes(marker);
+
+    // ── Primary check: stable LOGID-based QR (new format, never changes) ──
+    if (storedUserId) {
+      const logidMarker = `LOGID:${storedUserId}|`;
+      if (qrData.includes(logidMarker)) return true;
+    }
+
+    // ── Fallback: old USER:username-based QR (legacy format) ──
+    // This allows existing printed QR codes to keep working until re-generated.
+    if (storedUsername) {
+      const usernameMarker = `USER:${storedUsername}|`;
+      if (qrData.includes(usernameMarker)) return true;
+    }
+
+    return false;
   };
 
   const handleBarcodeScanned = async (event: any) => {
@@ -401,10 +490,30 @@ export default function UserAttendance() {
           } catch (e) {
             console.warn('Clock-in record failed:', e);
           }
-          setClockInTime(formattedTime);
+
+          const now    = new Date();
+          const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          setClockInTime(timeStr);
           setIsClockedIn(true);
-          await AsyncStorage.setItem('userClockInTime', formattedTime);
-          showModal('success', '✅ Face Verified!', result?.message || "Face match success. You are clocked in.", '');
+          await AsyncStorage.setItem('userClockInTime', timeStr);
+
+          // ── Compute on-time vs late ──────────────────────────────────
+          const [sh, sm]       = shiftStart.split(':').map(Number);
+          const shiftStartMins = sh * 60 + sm + gracePeriodMins;
+          const clockInMins    = now.getHours() * 60 + now.getMinutes();
+
+          if (clockInMins > shiftStartMins) {
+            const rawLate = clockInMins - (sh * 60 + sm);
+            const lh = Math.floor(rawLate / 60);
+            const lm = rawLate % 60;
+            setIsLate(true);
+            setLateByText(lh > 0 ? `${lh}h ${lm}m` : `${lm} min`);
+            showModal('warning', '⏰ Clocked In Late', `You clocked in at ${timeStr}.\nYour shift starts at ${shiftStart}.`, `You are ${lh > 0 ? `${lh}h ${lm}m` : `${lm} min`} late.`);
+          } else {
+            setIsLate(false);
+            setLateByText('');
+            showModal('success', '✅ Face Verified!', result?.message || `You clocked in on time at ${timeStr}.`, '');
+          }
         } else if (result?.verified === false) {
           // Validation failed (wrong face, poor lighting, etc.) - This is expected, not an error
           const isNoFace =
@@ -494,14 +603,33 @@ export default function UserAttendance() {
           >
             {/* Status card */}
             <View style={[styles.statusCard, dyn.card]}>
-              <View style={styles.statusIconWrapper}>
-                <MaterialCommunityIcons name="shield-check" size={64} color="#2ecc71" />
+              <View style={[styles.statusIconWrapper, { backgroundColor: isLate ? 'rgba(192,57,43,0.15)' : 'rgba(46,204,113,0.15)' }]}>
+                <MaterialCommunityIcons
+                  name={isLate ? 'clock-alert' : 'shield-check'}
+                  size={64}
+                  color={isLate ? '#C0392B' : '#2ecc71'}
+                />
               </View>
-              <Text style={styles.statusTitle}>YOU ARE CLOCKED IN</Text>
+              <Text style={[styles.statusTitle, { color: isLate ? '#C0392B' : '#2ecc71' }]}>
+                {isLate ? 'CLOCKED IN LATE' : 'CLOCKED IN ON TIME'}
+              </Text>
               <Text style={[styles.statusTime, dyn.text]}>{clockInTime}</Text>
+
+              {/* Late / On-Time badge */}
+              <View style={[styles.timingBadge, { backgroundColor: isLate ? 'rgba(192,57,43,0.1)' : 'rgba(39,174,96,0.1)' }]}>
+                <Ionicons
+                  name={isLate ? 'warning-outline' : 'checkmark-circle-outline'}
+                  size={15}
+                  color={isLate ? '#C0392B' : '#27AE60'}
+                />
+                <Text style={[styles.timingBadgeText, { color: isLate ? '#C0392B' : '#27AE60' }]}>
+                  {isLate ? `Late by ${lateByText}  ·  Shift: ${shiftStart}` : `On Time  ·  Shift: ${shiftStart} – ${shiftEnd}`}
+                </Text>
+              </View>
+
               {locationLabel && (
                 <Text style={[styles.statusLocation, dyn.sub]}>
-                  You are clocked in at {locationLabel}
+                  📍 {locationLabel}
                 </Text>
               )}
             </View>
@@ -548,23 +676,40 @@ export default function UserAttendance() {
             </View>
           </ScrollView>
         ) : (
-          <View style={styles.cameraWrapper}>
-            <CameraView
-              ref={cameraRef}
-              style={styles.camera}
-              facing="front"
-              barcodeScannerSettings={{ barcodeTypes: ['qr'] as any }}
-              onBarcodeScanned={handleBarcodeScanned}
-            />
-            <View style={styles.cameraOverlay}>
-              {isVerifying ? (
-                <View style={styles.verifyingContainer}>
-                  <ActivityIndicator size="large" color="#F27121" />
-                  <Text style={styles.verifyingText}>Verifying face...</Text>
+          <View style={styles.cameraSection}>
+            {/* ── Shift Info Banner ─────────────────────────── */}
+            <View style={styles.shiftBanner}>
+              <View style={styles.shiftBannerLeft}>
+                <Ionicons name="time-outline" size={18} color="#F27121" />
+                <Text style={styles.shiftBannerName}>{shiftName} Shift</Text>
+              </View>
+              <Text style={styles.shiftBannerTime}>{shiftStart} – {shiftEnd}</Text>
+              {gracePeriodMins > 0 && (
+                <View style={styles.graceTag}>
+                  <Text style={styles.graceTagText}>{gracePeriodMins}m grace</Text>
                 </View>
-              ) : (
-                <View style={styles.faceFrame} />
               )}
+            </View>
+
+            {/* ── Camera circle ─────────────────────────────── */}
+            <View style={styles.cameraWrapper}>
+              <CameraView
+                ref={cameraRef}
+                style={styles.camera}
+                facing="front"
+                barcodeScannerSettings={{ barcodeTypes: ['qr'] as any }}
+                onBarcodeScanned={handleBarcodeScanned}
+              />
+              <View style={styles.cameraOverlay}>
+                {isVerifying ? (
+                  <View style={styles.verifyingContainer}>
+                    <ActivityIndicator size="large" color="#F27121" />
+                    <Text style={styles.verifyingText}>Verifying face...</Text>
+                  </View>
+                ) : (
+                  <View style={[styles.faceFrame, qrVerified && styles.faceFrameReady]} />
+                )}
+              </View>
             </View>
           </View>
         )}
@@ -691,17 +836,45 @@ const styles = StyleSheet.create({
   centerStageCentered: { justifyContent: 'center', alignItems: 'center' },
   clockedInScroll: { flex: 1 },
   clockedInScrollContent: { paddingHorizontal: 20, paddingVertical: 16, paddingBottom: 24 },
+
+  // Camera section with shift banner
+  cameraSection: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  shiftBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(242,113,33,0.10)',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    marginBottom: 18,
+    gap: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(242,113,33,0.25)',
+  },
+  shiftBannerLeft: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  shiftBannerName: { fontSize: 13, fontWeight: '700', color: '#F27121' },
+  shiftBannerTime: { fontSize: 13, fontWeight: '600', color: '#888', marginLeft: 'auto' },
+  graceTag: { backgroundColor: 'rgba(39,174,96,0.12)', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3, marginLeft: 6 },
+  graceTagText: { fontSize: 11, fontWeight: '700', color: '#27AE60' },
+
   cameraWrapper: { width: width * 0.7, height: width * 0.7, borderRadius: (width * 0.7) / 2, overflow: 'hidden', borderWidth: 4, borderColor: '#F27121', backgroundColor: 'black', alignSelf: 'center' },
   camera: { flex: 1 },
   cameraOverlay: { ...StyleSheet.absoluteFillObject, justifyContent: 'center', alignItems: 'center' },
-  faceFrame: { width: '85%', height: '85%', borderRadius: 200, borderWidth: 2, borderColor: 'rgba(255,255,255,0.5)', borderStyle: 'dashed' },
+  faceFrame:      { width: '85%', height: '85%', borderRadius: 200, borderWidth: 2, borderColor: 'rgba(255,255,255,0.5)', borderStyle: 'dashed' },
+  faceFrameReady: { borderColor: '#2ecc71', borderStyle: 'solid' },
   verifyingContainer: { backgroundColor: 'rgba(0,0,0,0.7)', padding: 20, borderRadius: 10 },
   verifyingText: { color: 'white', marginTop: 10, fontWeight: 'bold' },
+
+  // Status card
   statusCard: { alignItems: 'center', padding: 24, borderRadius: 20, marginBottom: 16, elevation: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.12, shadowRadius: 8 },
-  statusIconWrapper: { width: 100, height: 100, borderRadius: 50, backgroundColor: 'rgba(46, 204, 113, 0.15)', justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
-  statusTitle: { color: '#2ecc71', fontSize: 16, fontWeight: '800', letterSpacing: 2 },
+  statusIconWrapper: { width: 100, height: 100, borderRadius: 50, justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
+  statusTitle: { fontSize: 16, fontWeight: '800', letterSpacing: 1.5 },
   statusTime: { fontSize: 44, fontWeight: 'bold', marginTop: 8 },
   statusLocation: { marginTop: 6, fontSize: 13, textAlign: 'center' },
+
+  // Late / On-Time badge
+  timingBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, marginTop: 10, marginBottom: 4 },
+  timingBadgeText: { fontSize: 12, fontWeight: '700' },
   mapCard: { borderRadius: 20, overflow: 'hidden', marginTop: 12, marginBottom: 20, elevation: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.12, shadowRadius: 8 },
   mapSurface: { height: MAP_HEIGHT, width: '100%', position: 'relative' },
   mapWrapper: { height: MAP_HEIGHT, width: '100%' },

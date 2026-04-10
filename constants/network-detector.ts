@@ -66,30 +66,40 @@ export async function detectBestNetwork(): Promise<string> {
       lastSuccessfulUrl = custom;
       return custom;
     }
+
+    // 0. QUICK CHECK: Try last working URL first (if auto-mode)
+    if (lastSuccessfulUrl) {
+      const stillWorks = await testConnectivity(lastSuccessfulUrl, 1200);
+      if (stillWorks) {
+        currentBackendUrl = lastSuccessfulUrl;
+        return lastSuccessfulUrl;
+      }
+    }
     
     // Auto mode: try local first, then custom tunnel, then ngrok
     const candidates = [local, 'http://127.0.0.1:8000', 'http://localhost:8000', 'http://10.0.2.2:8000'];
-    const tried = new Set<string>();
-
-    console.log('[Network] Auto-detecting network, candidates:', candidates);
-
-    for (const candidate of candidates) {
-      if (!candidate) continue;
-      if (tried.has(candidate)) continue;
-      tried.add(candidate);
-      try {
-        console.log('[Network] Testing candidate:', candidate);
-        // Use short timeout for local checks so detection stays fast
-        const works = await testConnectivity(candidate, 1500);
-        if (works) {
-          console.log('[Network] ✓ Candidate connected:', candidate);
-          currentBackendUrl = candidate;
-          lastSuccessfulUrl = candidate;
-          return candidate;
-        }
-      } catch (e) {
-        console.warn('[Network] Candidate test error for', candidate, e);
+    
+    // 1. Parallel test all local candidates (very fast: 1.5s max total delay)
+    const validCandidates = Array.from(new Set(candidates)).filter(Boolean);
+    console.log('[Network] Testing local candidates in parallel:', validCandidates);
+    
+    try {
+      const results = await Promise.all(
+        validCandidates.map(async (c) => {
+          const works = await testConnectivity(c, 1500);
+          return works ? c : null;
+        })
+      );
+      
+      const winner = results.find(c => c !== null);
+      if (winner) {
+        console.log('[Network] ✓ Winner connected:', winner);
+        currentBackendUrl = winner;
+        lastSuccessfulUrl = winner;
+        return winner;
       }
+    } catch (e) {
+      console.warn('[Network] Parallel test error:', e);
     }
 
     // Try custom tunnel (localtunnel, Cloudflare, fxtun, etc.) before ngrok

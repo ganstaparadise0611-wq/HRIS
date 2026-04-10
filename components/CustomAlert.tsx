@@ -1,6 +1,7 @@
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import React, { useEffect, useRef } from 'react';
 import { Animated, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useTheme } from '../app/(tabs)/ThemeContext';
 
 export type AlertType = 'success' | 'error' | 'info' | 'warning';
 
@@ -11,7 +12,10 @@ interface CustomAlertProps {
   message: string;
   hint?: string;
   buttonText?: string;
+  cancelText?: string;
+  onConfirm?: () => void;
   onClose: () => void;
+  onCancel?: () => void;
   backgroundColor?: string;
   textColor?: string;
 }
@@ -23,34 +27,47 @@ export default function CustomAlert({
   message,
   hint,
   buttonText,
+  cancelText,
+  onConfirm,
   onClose,
-  backgroundColor = '#1c1c1e',
-  textColor = '#ffffff',
+  onCancel,
+  backgroundColor,
+  textColor,
 }: CustomAlertProps) {
-  const scaleAnim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    if (visible) {
-      Animated.spring(scaleAnim, {
-        toValue: 1,
-        friction: 5,
-        tension: 100,
+    const scaleAnim = useRef(new Animated.Value(0)).current;
+    const { colors, theme } = useTheme();
+    
+    // Force dynamic theme matching regardless of props
+    const finalBgColor = colors.card;
+    const finalTextColor = colors.text;
+  
+    useEffect(() => {
+      if (visible) {
+        Animated.spring(scaleAnim, {
+          toValue: 1,
+          friction: 5,
+          tension: 100,
+          useNativeDriver: true,
+        }).start();
+      } else {
+        scaleAnim.setValue(0);
+      }
+    }, [visible]);
+  
+    const handleClose = (action: 'confirm' | 'cancel' | 'dismiss' = 'dismiss') => {
+      Animated.timing(scaleAnim, {
+        toValue: 0,
+        duration: 200,
         useNativeDriver: true,
-      }).start();
-    } else {
-      scaleAnim.setValue(0);
-    }
-  }, [visible]);
-
-  const handleClose = () => {
-    Animated.timing(scaleAnim, {
-      toValue: 0,
-      duration: 200,
-      useNativeDriver: true,
-    }).start(() => {
-      onClose();
-    });
-  };
+      }).start(() => {
+        onClose(); // Just hides the modal
+        if (action === 'confirm' && onConfirm) {
+          onConfirm();
+        } else if (action === 'cancel' && onCancel) {
+          onCancel();
+        }
+      });
+    };
 
   const getIcon = () => {
     switch (type) {
@@ -113,13 +130,13 @@ export default function CustomAlert({
       visible={visible}
       transparent={true}
       animationType="fade"
-      onRequestClose={handleClose}
+      onRequestClose={() => handleClose()}
     >
       <View style={styles.modalOverlay}>
         <Animated.View
           style={[
             styles.modalContainer,
-            { transform: [{ scale: scaleAnim }], backgroundColor },
+            { transform: [{ scale: scaleAnim }], backgroundColor: finalBgColor },
           ]}
         >
           {/* Icon */}
@@ -128,10 +145,10 @@ export default function CustomAlert({
           </View>
 
           {/* Title */}
-          <Text style={[styles.modalTitle, { color: textColor }]}>{title}</Text>
+          <Text style={[styles.modalTitle, { color: finalTextColor }]}>{title}</Text>
 
           {/* Message */}
-          <Text style={[styles.modalMessage, { color: textColor, opacity: 0.8 }]}>
+          <Text style={[styles.modalMessage, { color: finalTextColor, opacity: 0.8 }]}>
             {message}
           </Text>
 
@@ -143,15 +160,27 @@ export default function CustomAlert({
             </View>
           ) : null}
 
-          {/* Action Button */}
-          <TouchableOpacity
-            style={[styles.modalButton, { backgroundColor: getButtonColor() }]}
-            onPress={handleClose}
-          >
-            <Text style={styles.modalButtonText}>
-              {buttonText || getDefaultButtonText()}
-            </Text>
-          </TouchableOpacity>
+          {/* Action Buttons */}
+          <View style={{ flexDirection: 'row', gap: 12, width: '100%', marginTop: 20 }}>
+            {cancelText ? (
+              <TouchableOpacity
+                style={[styles.modalButton, { flex: 1, backgroundColor: 'transparent', borderWidth: 1, borderColor: getButtonColor() + '80' }]}
+                onPress={() => handleClose('cancel')}
+              >
+                <Text style={[styles.modalButtonText, { color: finalTextColor, opacity: 0.8 }]}>
+                  {cancelText}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+            <TouchableOpacity
+              style={[styles.modalButton, { flex: 1, backgroundColor: getButtonColor() }]}
+              onPress={() => handleClose('confirm')}
+            >
+              <Text style={styles.modalButtonText}>
+                {buttonText || getDefaultButtonText()}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </Animated.View>
       </View>
     </Modal>
@@ -214,12 +243,10 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   modalButton: {
-    paddingVertical: 15,
-    paddingHorizontal: 40,
+    paddingVertical: 14,
     borderRadius: 12,
-    marginTop: 10,
-    minWidth: 150,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   modalButtonText: {
     color: 'white',

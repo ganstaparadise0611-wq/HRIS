@@ -257,9 +257,9 @@ export default function UserProfile() {
 
       console.log('[Profile Picture] Fetching for userId:', userId);
 
-      // Fetch profile picture from accounts table
+      // Fetch profile picture from accounts table (profile_picture column only)
       const response = await fetch(
-        `${SUPABASE_URL}/rest/v1/accounts?log_id=eq.${userId}&select=face`,
+        `${SUPABASE_URL}/rest/v1/accounts?log_id=eq.${userId}&select=profile_picture`,
         {
           method: 'GET',
           headers: {
@@ -276,40 +276,27 @@ export default function UserProfile() {
       console.log('[Profile Picture] Data length:', data?.length);
       console.log('[Profile Picture] Has face:', !!data?.[0]?.face);
       
-      if (data && data.length > 0 && data[0].face) {
-        const faceData = data[0].face;
-        console.log('[Profile Picture] Face data type:', typeof faceData);
-        console.log('[Profile Picture] Face data length:', faceData?.length);
-        console.log('[Profile Picture] First 50 chars:', faceData.substring?.(0, 50) || 'not a string');
+      if (data && data.length > 0 && data[0].profile_picture) {
+        const picData = data[0].profile_picture;
+        console.log('[Profile Picture] Data type:', typeof picData);
+        console.log('[Profile Picture] First 50 chars:', picData.substring?.(0, 50) || 'not a string');
         
-        if (typeof faceData === 'string') {
-          // If already a data URI, use as-is
-          if (faceData.startsWith('data:image')) {
-            setProfilePicture(faceData);
+        if (typeof picData === 'string') {
+          if (picData.startsWith('data:image')) {
+            setProfilePicture(picData);
             console.log('[Profile Picture] ✓ Set as data URI');
-          }
-          // If looks like base64, add prefix
-          else if (faceData.startsWith('/9j') || faceData.startsWith('iVBOR') || faceData.startsWith('R0lG')) {
-            const uri = `data:image/jpeg;base64,${faceData}`;
-            setProfilePicture(uri);
+          } else if (picData.startsWith('/9j') || picData.startsWith('iVBOR') || picData.startsWith('R0lG')) {
+            setProfilePicture(`data:image/jpeg;base64,${picData}`);
             console.log('[Profile Picture] ✓ Set as base64 with prefix');
-          }
-          // Handle PostgreSQL bytea hex format (\x...)
-          else if (faceData.startsWith('\\x')) {
-            console.warn('[Profile Picture] ⚠ Data is in PostgreSQL hex format - cannot display');
-            // Silently ignore - user can update later if needed
-          }
-          // Try as base64 anyway
-          else {
-            const uri = `data:image/jpeg;base64,${faceData}`;
-            setProfilePicture(uri);
+          } else if (!picData.startsWith('\\x')) {
+            setProfilePicture(`data:image/jpeg;base64,${picData}`);
             console.log('[Profile Picture] ✓ Set as base64 (fallback)');
+          } else {
+            console.warn('[Profile Picture] ⚠ PostgreSQL hex format — cannot display');
           }
-        } else {
-          console.warn('[Profile Picture] Face data is not a string:', typeof faceData);
         }
       } else {
-        console.log('[Profile Picture] No face data found in database');
+        console.log('[Profile Picture] No profile_picture found in database');
       }
     } catch (error) {
       console.error('[Profile Picture] Error:', error);
@@ -360,7 +347,7 @@ export default function UserProfile() {
       // Create complete data URI (this prevents PostgreSQL from converting to hex)
       const dataUri = `data:image/jpeg;base64,${base64Image}`;
 
-      // Update database with complete data URI
+      // Update profile_picture column (NOT face — that's for face recognition)
       const response = await fetch(
         `${SUPABASE_URL}/rest/v1/accounts?log_id=eq.${userId}`,
         {
@@ -372,7 +359,7 @@ export default function UserProfile() {
             Prefer: 'return=representation',
           },
           body: JSON.stringify({
-            face: dataUri, // Send as complete data URI
+            profile_picture: dataUri, // Dedicated profile photo column
           }),
         }
       );
@@ -496,6 +483,51 @@ export default function UserProfile() {
     loadProfilePicture();
   };
 
+  const regenerateQR = async () => {
+    try {
+      const userId = await AsyncStorage.getItem('userId');
+      if (!userId) {
+        showAlert({ type: 'error', title: 'Error', message: 'User not logged in.' });
+        return;
+      }
+
+      setLoading(true);
+
+      // Build stable QR: LOGID-based (never changes with username)
+      const timestamp = Date.now();
+      const stableQr  = `LOGID:${userId}|TIME:${timestamp}`;
+
+      const { getBackendUrl } = await import('../../constants/backend-config');
+      const backendUrl = getBackendUrl();
+
+      const res = await fetch(`${backendUrl}/update-qr.php`, {
+        method:  'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept:         'application/json',
+          'ngrok-skip-browser-warning': 'true',
+        },
+        body: JSON.stringify({ log_id: parseInt(userId), qr_code: stableQr }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (res.ok && data.ok) {
+        showAlert({
+          type:    'success',
+          title:   '✅ QR Regenerated',
+          message: 'Your QR code has been updated. You can now use it to clock in — it will keep working even if you change your username again.',
+        });
+      } else {
+        throw new Error(data.message || 'Failed to update QR code');
+      }
+    } catch (err: any) {
+      showAlert({ type: 'error', title: 'Failed', message: err?.message || 'Could not regenerate QR code.' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Dynamic styles
   const dyn = {
     bg: { backgroundColor: colors.background },
@@ -551,12 +583,12 @@ export default function UserProfile() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* PROFILE PICTURE */}
+      {/* PROFILE PICTURE SECTION */}
         <View style={styles.profilePictureContainer}>
           <View style={styles.profilePicture}>
-            {faceImageUri ? (
+            {profilePicture ? (
               <Image 
-                source={{ uri: faceImageUri }} 
+                source={{ uri: profilePicture }} 
                 style={styles.profileImage}
                 resizeMode="cover"
               />
@@ -849,16 +881,28 @@ export default function UserProfile() {
             )}
           </TouchableOpacity>
         )}
+
+        {/* REGENERATE QR BUTTON — always visible so users can fix QR after username change */}
+        <TouchableOpacity
+          style={styles.regenQrButton}
+          onPress={regenerateQR}
+          disabled={loading}
+        >
+          <MaterialCommunityIcons name="qrcode-edit" size={20} color="#F27121" />
+          <Text style={styles.regenQrText}>Regenerate QR Code</Text>
+        </TouchableOpacity>
+        <Text style={styles.regenQrHint}>
+          Use this if your QR code stopped working after a username change.
+        </Text>
+
       </ScrollView>
 
       <CustomAlert
         visible={visible}
-        type={config.type}
-        title={config.title}
-        message={config.message}
-        hint={config.hint}
-        buttonText={config.buttonText}
+        {...config}
         onClose={hideAlert}
+        onConfirm={config.onClose}
+        onCancel={config.onCancel}
         backgroundColor={colors.card}
         textColor={colors.text}
       />
@@ -927,11 +971,6 @@ const styles = StyleSheet.create({
   profileImage: {
     width: '100%',
     height: '100%',
-  },
-  profileImage: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
   },
   changePictureButton: {
     position: 'absolute',
@@ -1107,5 +1146,33 @@ const styles = StyleSheet.create({
     color: '#FFF',
     fontSize: 16,
     fontWeight: '600',
+  },
+
+  // QR Regenerate button
+  regenQrButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginHorizontal: 20,
+    marginTop: 16,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#F27121',
+    borderStyle: 'dashed',
+  },
+  regenQrText: {
+    color: '#F27121',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  regenQrHint: {
+    textAlign: 'center',
+    fontSize: 12,
+    color: '#888',
+    marginHorizontal: 20,
+    marginTop: 6,
+    marginBottom: 30,
   },
 });
