@@ -25,10 +25,13 @@ export default function FeaturesScreen() {
     { label: 'Overtime', icon: 'clock-fast', route: '/userovertime', lib: MaterialCommunityIcons },
     { label: 'Leave', icon: 'calendar-outline', route: '/userleave', lib: Ionicons },
     { label: 'On Duty', icon: 'airplane-outline', route: '/useronduty', lib: Ionicons },
-    { label: 'Att. List', icon: 'list-outline', route: '/(tabs)/attendancehistory', lib: Ionicons },
-    { label: 'Correction', icon: 'time-outline', route: '/(tabs)/userattendancecorrection', lib: Ionicons },
     { label: 'Shift Sched', icon: 'moon-outline', route: '/(tabs)/shiftschedule', lib: Ionicons },
     { label: 'Timesheet', icon: 'journal-outline', route: '/(tabs)/usertimesheet', lib: Ionicons },
+    { label: 'Attendance\nReport', icon: 'clock-time-four-outline', route: '/(tabs)/attendancereport', lib: MaterialCommunityIcons },
+    { label: 'Attendance\nSummary Report', icon: 'card-account-details-outline', route: '', lib: MaterialCommunityIcons },
+    { label: 'Attendance\nLocation Report', icon: 'map-marker-radius-outline', route: '/(tabs)/attendancelocationreport', lib: MaterialCommunityIcons },
+    { label: 'Attendance\nCorrection Report', icon: 'file-document-edit-outline', route: '/(tabs)/userattendancecorrection', lib: MaterialCommunityIcons },
+    { label: 'Attendance\nLog Report', icon: 'history', route: '/(tabs)/attendancehistory', lib: MaterialCommunityIcons },
   ];
 
   return (
@@ -117,3 +120,4 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 });
+

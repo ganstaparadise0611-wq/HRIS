@@ -259,13 +259,12 @@ export default function UserAttendance() {
   }, []);
 
   useEffect(() => {
-    if (isClockedIn) {
-      fetchLocation();
-    } else {
-      setLocation(null);
-      setLocationError(null);
-    }
-  }, [isClockedIn, fetchLocation]);
+    // Start fetching location on mount so it's ready when they clock in
+    fetchLocation();
+    
+    const interval = setInterval(fetchLocation, 30000); // Refresh every 30s
+    return () => clearInterval(interval);
+  }, [fetchLocation]);
 
   const formattedTime = currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const formattedDate = currentTime.toDateString();
@@ -433,6 +432,26 @@ export default function UserAttendance() {
   const recordAttendance = async (action: 'clock_in' | 'clock_out') => {
     const userId = await AsyncStorage.getItem('userId');
     if (!userId) return;
+    
+    let currentLocation = location;
+    if (!currentLocation) {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status === 'granted') {
+          const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          currentLocation = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+        }
+      } catch (e) {
+        console.warn('Fallback location fetch failed:', e);
+      }
+    }
+
+    // Calculate radius if we have location
+    let radius = null;
+    if (currentLocation) {
+      radius = distanceMeters(currentLocation, OFFICE_COORD);
+    }
+
     const backendUrl = getBackendUrl();
     const res = await fetch(`${backendUrl}/record_attendance.php`, {
       method: 'POST',
@@ -441,7 +460,13 @@ export default function UserAttendance() {
         Accept: 'application/json',
         'ngrok-skip-browser-warning': 'true',
       },
-      body: JSON.stringify({ user_id: userId, action }),
+      body: JSON.stringify({ 
+        user_id: userId, 
+        action,
+        latitude: currentLocation?.latitude ?? null,
+        longitude: currentLocation?.longitude ?? null,
+        radius: radius !== null ? Math.round(radius * 100) / 100 : null // 2 decimal places
+      }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.ok) {

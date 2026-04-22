@@ -629,15 +629,15 @@ export default function UserActivity() {
             >
               <Text style={[styles.attachTitle, dyn.text]}>Add Evidence</Text>
               <TouchableOpacity style={styles.attachOption} onPress={takePhoto}>
-                <MaterialCommunityIcons name="camera-outline" size={22} color={dyn.iconColor.color} />
+                <MaterialCommunityIcons name="camera-outline" size={22} color={dyn.iconColor} />
                 <Text style={[styles.attachOptionText, dyn.text]}>Take Photo</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.attachOption} onPress={pickImage}>
-                <MaterialCommunityIcons name="image-outline" size={22} color={dyn.iconColor.color} />
+                <MaterialCommunityIcons name="image-outline" size={22} color={dyn.iconColor} />
                 <Text style={[styles.attachOptionText, dyn.text]}>Choose from Gallery</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.attachOption} onPress={pickFile}>
-                <MaterialCommunityIcons name="file-upload-outline" size={22} color={dyn.iconColor.color} />
+                <MaterialCommunityIcons name="file-upload-outline" size={22} color={dyn.iconColor} />
                 <Text style={[styles.attachOptionText, dyn.text]}>Attach Document / File</Text>
               </TouchableOpacity>
               <TouchableOpacity

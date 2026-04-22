@@ -7,8 +7,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { getBackendUrl } from '../../constants/backend-config';
 import { useTheme } from './ThemeContext';
-import CustomAlert from '../../components/CustomAlert';
-import { useCustomAlert } from '../../hooks/useCustomAlert';
 
 // Native Date Formatter Helpers
 const formatDateStr = (date: Date) => {
@@ -25,13 +23,7 @@ const formatDisplayDate = (date: Date) => {
 const formatTime = (timeStr: string) => {
   if (!timeStr) return '--:--';
   const parts = timeStr.split(':');
-  if (parts.length >= 2) {
-    let h = parseInt(parts[0], 10);
-    const m = parts[1];
-    const ampm = h >= 12 ? 'PM' : 'AM';
-    h = h % 12 || 12;
-    return `${h}:${m} ${ampm}`;
-  }
+  if (parts.length >= 2) return `${parts[0]}:${parts[1]}`;
   return timeStr;
 };
 
@@ -175,27 +167,16 @@ export default function TimesheetScreen() {
     }).start(() => setModalVisible(false));
   };
 
-  const { visible, config, showAlert, hideAlert } = useCustomAlert();
-
   const handleSaveActivity = async () => {
     if (!formProjectId) {
-      showAlert({ type: 'warning', title: 'Required', message: 'Please select a project' });
-      return;
-    }
-    if (!formRemark.trim()) {
-      showAlert({ type: 'warning', title: 'Required', message: 'Please enter a remark or description of your work' });
-      return;
-    }
-
-    if (formStartTime && formEndTime && formEndTime <= formStartTime) {
-      showAlert({ type: 'warning', title: 'Invalid Time', message: 'End time must be after start time' });
+      Alert.alert('Required', 'Please select a project');
       return;
     }
 
     setIsSaving(true);
     try {
-      const st = formStartTime ? `${String(formStartTime.getHours()).padStart(2, '0')}:${String(formStartTime.getMinutes()).padStart(2, '0')}:00` : null;
-      const et = formEndTime ? `${String(formEndTime.getHours()).padStart(2, '0')}:${String(formEndTime.getMinutes()).padStart(2, '0')}:00` : null;
+      const st = formStartTime ? `${String(formStartTime.getHours()).padStart(2, '0')}:${String(formStartTime.getMinutes()).padStart(2, '0')}` : null;
+      const et = formEndTime ? `${String(formEndTime.getHours()).padStart(2, '0')}:${String(formEndTime.getMinutes()).padStart(2, '0')}` : null;
 
       const body = {
         user_id: userId,
@@ -217,13 +198,12 @@ export default function TimesheetScreen() {
       if (json.success) {
         closeModal();
         fetchData(selectedDateStamp);
-        showAlert({ type: 'success', title: 'Activity Saved', message: json.message || 'The activity has been added to your timeline!' });
       } else {
-        showAlert({ type: 'error', title: 'Save Failed', message: json.message || 'Check your internet connection' });
+        Alert.alert('Error', json.message || 'Failed to save activity');
       }
-    } catch (e: any) {
-      console.error(e);
-      Alert.alert('Error', 'Connection error or invalid response');
+    } catch (error) {
+      console.error('Error saving activity:', error);
+      Alert.alert('Error', 'Connection error');
     } finally {
       setIsSaving(false);
     }
@@ -231,22 +211,18 @@ export default function TimesheetScreen() {
 
   const handleSubmitTimesheet = async () => {
     if (activities.length === 0) {
-      showAlert({ type: 'info', title: 'Notice', message: 'No activities to submit for this date.' });
+      Alert.alert('Notice', 'No activities to submit for this date.');
       return;
     }
     if (timesheetStatus !== 'pending') {
-      showAlert({ type: 'info', title: 'Notice', message: `Timesheet is already ${timesheetStatus}` });
+      Alert.alert('Notice', `Timesheet is already ${timesheetStatus}`);
       return;
     }
 
-    showAlert({
-      type: 'info',
-      title: 'Submit Timesheet',
-      message: `Are you sure you want to submit the timesheet for ${selectedDateStamp}?`,
-      onConfirm: submitToBackend,
-      buttonText: 'Yes, Submit',
-      cancelText: 'Cancel'
-    });
+    Alert.alert('Submit Timesheet', `Are you sure you want to submit the timesheet for ${selectedDateStamp}?`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Submit', style: 'default', onPress: submitToBackend }
+    ]);
   };
 
   const submitToBackend = async () => {
@@ -262,13 +238,13 @@ export default function TimesheetScreen() {
       });
       const json = await res.json();
       if (json.success) {
+        Alert.alert('Success', 'Timesheet submitted successfully');
         setTimesheetStatus('submitted');
-        showAlert({ type: 'success', title: 'Timesheet Submitted', message: 'Your work records have been successfully submitted for approval!' });
       } else {
-        showAlert({ type: 'error', title: 'Error', message: json.message || 'Submission failed' });
+        Alert.alert('Error', json.message || 'Submit failed');
       }
     } catch (e) {
-      showAlert({ type: 'error', title: 'Error', message: 'Connection error' });
+      Alert.alert('Error', 'Connection error');
     } finally {
       setIsSubmitting(false);
     }
@@ -370,7 +346,7 @@ export default function TimesheetScreen() {
                 <View style={styles.actTimeWrap}>
                   <Ionicons name="time-outline" size={16} color="#FF8A00" />
                   <Text style={[styles.actTime, dyn.text]}>
-                    {formatTime(act.start_time)} - {act.end_time ? formatTime(act.end_time) : 'Now'}
+                    {formatTime(act.start_time)} - {formatTime(act.end_time)}
                   </Text>
                 </View>
                 {timesheetStatus === 'pending' && (
@@ -482,7 +458,7 @@ export default function TimesheetScreen() {
           <DateTimePicker
             value={(showPicker === 'start' ? formStartTime : formEndTime) || new Date()}
             mode="time"
-            is24Hour={false}
+            is24Hour={true}
             display="default"
             onChange={onTimeChange}
           />
@@ -530,14 +506,6 @@ export default function TimesheetScreen() {
           </View>
         </View>
       </Modal>
-
-      <CustomAlert 
-        visible={visible} 
-        {...config} 
-        onClose={hideAlert} 
-        onConfirm={config.onClose || config.onConfirm}
-        onCancel={config.onCancel}
-      />
     </SafeAreaView>
   );
 }

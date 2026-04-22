@@ -60,7 +60,7 @@ function handleGetRequest() {
     
     [$statusCode, $data, $err] = supabase_request(
         'GET',
-        "rest/v1/feedback?{$query}&select=id,title,message,type,status,created_at,updated_at"
+        "rest/v1/feedback?{$query}&select=id,title,message,type,status,created_at,updated_at,satisfaction_rating,share_to_feed"
     );
     
     if ($err) {
@@ -97,25 +97,38 @@ function handlePostRequest() {
     $title = trim($input['title']);
     $message = trim($input['message']);
     $type = isset($input['type']) ? $input['type'] : 'suggestion';
+    $rating = isset($input['satisfaction_rating']) ? intval($input['satisfaction_rating']) : null;
+    $shareToFeed = isset($input['share_to_feed']) ? (bool)$input['share_to_feed'] : false;
     
     // Validate type
     if (!in_array($type, ['suggestion', 'complaint', 'compliment'])) {
         throw new Exception('Invalid type value', 400);
     }
     
+    // Validate rating if provided
+    if ($rating !== null && ($rating < 1 || $rating > 5)) {
+        throw new Exception('Invalid satisfaction_rating value', 400);
+    }
+
     // Create feedback data for Supabase
     $feedbackData = [
         'user_id' => $user_id,
         'title' => $title,
         'message' => $message,
         'type' => $type,
-        'status' => 'pending'
+        'status' => 'pending',
+        'share_to_feed' => $shareToFeed
     ];
+
+    if ($rating !== null) {
+        $feedbackData['satisfaction_rating'] = $rating;
+    }
     
     [$statusCode, $result, $err] = supabase_request(
         'POST',
         'rest/v1/feedback',
-        $feedbackData
+        $feedbackData,
+        ['Prefer: return=representation']
     );
     
     if ($err) {
@@ -126,6 +139,32 @@ function handlePostRequest() {
         throw new Exception('Failed to create feedback', $statusCode);
     }
     
+    // Optional: create a feed post when user chooses to share
+    if ($shareToFeed) {
+        try {
+            [$empStatus, $empData, $empErr] = supabase_request(
+                'GET',
+                "rest/v1/employees?log_id=eq.{$user_id}&select=emp_id&limit=1"
+            );
+            if (!$empErr && $empStatus === 200 && is_array($empData) && count($empData) > 0) {
+                $empId = $empData[0]['emp_id'];
+                $caption = $title;
+                if ($message !== '') {
+                    $caption .= " — {$message}";
+                }
+                supabase_request('POST', 'rest/v1/feeds_posts', [
+                    'emp_id' => $empId,
+                    'caption' => $caption,
+                    'image_url' => null,
+                    'is_achievement' => true,
+                    'kind' => 'post',
+                ]);
+            }
+        } catch (Exception $_e) {
+            // Ignore feed errors
+        }
+    }
+
     echo json_encode([
         'success' => true,
         'message' => 'Feedback submitted successfully',
@@ -149,7 +188,7 @@ function handlePutRequest() {
     
     // Build update data
     $updateData = [];
-    $allowed_fields = ['title', 'message', 'type', 'status'];
+    $allowed_fields = ['title', 'message', 'type', 'status', 'satisfaction_rating', 'share_to_feed'];
     
     foreach ($allowed_fields as $field) {
         if (isset($input[$field])) {
@@ -169,6 +208,15 @@ function handlePutRequest() {
     // Validate type if provided
     if (isset($updateData['type']) && !in_array($updateData['type'], ['suggestion', 'complaint', 'compliment'])) {
         throw new Exception('Invalid type value', 400);
+    }
+
+    // Validate rating if provided
+    if (isset($updateData['satisfaction_rating'])) {
+        $rating = intval($updateData['satisfaction_rating']);
+        if ($rating < 1 || $rating > 5) {
+            throw new Exception('Invalid satisfaction_rating value', 400);
+        }
+        $updateData['satisfaction_rating'] = $rating;
     }
     
     [$statusCode, $result, $err] = supabase_request(

@@ -662,10 +662,22 @@ export default function ModernSidebar() {
               message: 'Are you sure you want to log out of your account?',
               buttonText: 'Logout',
               cancelText: 'Cancel',
-              onConfirm: () => {
+              onConfirm: async () => {
                 setSidebarVisible(false);
+                // Clear session data to prevent auto-login from "Remember Me"
+                try {
+                  await AsyncStorage.multiRemove([
+                    'userId', 
+                    'username', 
+                    'keepLogged', 
+                    'emp_id', 
+                    'userClockInTime',
+                    'login_keep_logged'
+                  ]);
+                } catch (e) {}
+
                 setTimeout(() => {
-                  router.replace('/(tabs)/userlogin');
+                  router.replace('/userlogin');
                 }, 300); // Allow sidebar animation to close before routing
               }
             });

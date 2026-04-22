@@ -120,22 +120,26 @@ export default function UserMenu() {
       message: 'Are you sure you want to log out?',
       buttonText: 'Logout',
       cancelText: 'Cancel',
-      onClose: async () => {
+      onConfirm: async () => {
         try {
-          // Clear all session data including remember-me
-          await Promise.all([
-            AsyncStorage.removeItem('userId'),
-            AsyncStorage.removeItem('username'),
-            AsyncStorage.removeItem('emp_id'),
-            AsyncStorage.removeItem('login_keep_logged'),
-            AsyncStorage.removeItem('login_saved_username'),
-            AsyncStorage.removeItem('userClockInTime'),
+          // 1. Clear every potential session key at once
+          await AsyncStorage.multiRemove([
+            'userId', 
+            'username', 
+            'emp_id', 
+            'keepLogged', 
+            'login_keep_logged', 
+            'login_saved_username', 
+            'userClockInTime'
           ]);
-        } catch (_e) {
-          // Ignore storage errors
+          
+          // 2. Hide alert and navigate
+          hideAlert();
+          router.replace('/userlogin');
+        } catch (error) {
+          console.error('[Logout] Error:', error);
+          router.replace('/userlogin');
         }
-        hideAlert();
-        router.replace('/userlogin');
       }
     });
   };
@@ -462,7 +466,7 @@ export default function UserMenu() {
         visible={visible}
         {...config}
         onClose={hideAlert}
-        onConfirm={config.onClose}
+        onConfirm={config.onConfirm}
         onCancel={config.onCancel}
         backgroundColor={colors.card}
         textColor={colors.text}

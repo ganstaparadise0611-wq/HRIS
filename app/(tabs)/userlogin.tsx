@@ -58,6 +58,28 @@ export default function UserLogin() {
   const [gender, setGender] = useState('');
   const [role, setRole] = useState('Employee');
   const [deptId, setDeptId] = useState<number | null>(null);
+  
+  // Session check on mount
+  useEffect(() => {
+    const checkLoginSession = async () => {
+      try {
+        const keep = await AsyncStorage.getItem('keepLogged');
+        const uid = await AsyncStorage.getItem('userId');
+        if (keep === 'true' && uid) {
+          // User requested to be kept logged in and session exists
+          router.replace('/userdashboard');
+        } else if (keep !== 'true' && uid) {
+          // Session exists but 'keep me logged in' was false/not set -> clear it
+          await AsyncStorage.removeItem('userId');
+          await AsyncStorage.removeItem('username');
+        }
+      } catch (e) {
+        console.error('Session check error', e);
+      }
+    };
+    checkLoginSession();
+  }, []);
+
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [departments, setDepartments] = useState<Array<{dept_id: number, name: string}>>([]);
   const [showDeptPicker, setShowDeptPicker] = useState(false);
@@ -244,6 +266,7 @@ export default function UserLogin() {
       await Promise.all([
         AsyncStorage.setItem('userId', result.user.log_id.toString()),
         AsyncStorage.setItem('username', result.user.username),
+        AsyncStorage.setItem('keepLogged', keepLogged ? 'true' : 'false'),
       ]);
 
       // Register push token now that userId is known
@@ -255,7 +278,7 @@ export default function UserLogin() {
         type: 'success', 
         title: '✅ Success', 
         message: 'Login successful!',
-        onClose: () => router.push('/userdashboard')
+        onClose: () => router.replace('/userdashboard')
       });
     } catch (error: any) {
       console.error('[Login] Full error object:', error);

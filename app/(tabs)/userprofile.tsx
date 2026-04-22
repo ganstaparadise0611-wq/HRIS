@@ -33,6 +33,11 @@ interface UserProfile {
   role: string;
   dept_id: number;
   department_name?: string;
+  marital_status?: string;
+  spouse_name?: string;
+  emergency_contact_name?: string;
+  emergency_contact_phone?: string;
+  emergency_contact_relation?: string;
 }
 
 export default function UserProfile() {
@@ -64,6 +69,11 @@ export default function UserProfile() {
     role: '',
     dept_id: 0,
     department_name: '',
+    marital_status: '',
+    spouse_name: '',
+    emergency_contact_name: '',
+    emergency_contact_phone: '',
+    emergency_contact_relation: '',
   });
 
   const [editedProfile, setEditedProfile] = useState<UserProfile>(profile);
@@ -452,8 +462,11 @@ export default function UserProfile() {
             birthday: editedProfile.birthday,
             address: editedProfile.address,
             gender: editedProfile.gender,
-            role: editedProfile.role,
-            dept_id: editedProfile.dept_id,
+            marital_status: editedProfile.marital_status,
+            spouse_name: editedProfile.spouse_name,
+            emergency_contact_name: editedProfile.emergency_contact_name,
+            emergency_contact_phone: editedProfile.emergency_contact_phone,
+            emergency_contact_relation: editedProfile.emergency_contact_relation,
           }),
         }
       );
@@ -608,7 +621,10 @@ export default function UserProfile() {
 
         {/* PROFILE INFORMATION */}
         <View style={[styles.card, dyn.card]}>
-          <Text style={[styles.sectionTitle, dyn.text]}>Personal Information</Text>
+          <View style={styles.sectionHeader}>
+            <Ionicons name="person-outline" size={20} color="#F27121" />
+            <Text style={[styles.sectionTitle, dyn.text]}>Personal Information</Text>
+          </View>
 
           {/* Name */}
           <View style={styles.fieldContainer}>
@@ -812,47 +828,145 @@ export default function UserProfile() {
               </View>
             )}
           </View>
-
-          {/* Address */}
+          {/* Marital Status */}
           <View style={styles.fieldContainer}>
-            <Text style={[styles.fieldLabel, dyn.sub]}>Address</Text>
+            <Text style={[styles.fieldLabel, dyn.sub]}>Marital Status</Text>
             {editing ? (
-              <TextInput
-                style={[styles.input, dyn.input, styles.textArea]}
-                value={editedProfile.address}
-                onChangeText={(text) =>
-                  setEditedProfile({ ...editedProfile, address: text })
-                }
-                placeholder="Enter your address"
-                placeholderTextColor={colors.subText}
-                multiline
-                numberOfLines={3}
-              />
+              <View style={styles.statusRow}>
+                {['Single', 'Married', 'Widowed', 'Separated'].map((status) => (
+                  <TouchableOpacity
+                    key={status}
+                    style={[
+                      styles.choiceButton,
+                      editedProfile.marital_status === status && styles.choiceButtonActive,
+                    ]}
+                    onPress={() => setEditedProfile({ ...editedProfile, marital_status: status })}
+                  >
+                    <Text style={[
+                      styles.choiceButtonText,
+                      editedProfile.marital_status === status && styles.choiceButtonTextActive
+                    ]}>{status}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
             ) : (
-              <View style={[styles.input, dyn.input, styles.disabledInput, styles.textArea]}>
-                <Text style={[styles.inputText, dyn.text]}>{profile.address}</Text>
+              <View style={[styles.input, dyn.input, styles.disabledInput]}>
+                <Text style={[styles.inputText, dyn.text]}>{profile.marital_status || 'Not Set'}</Text>
               </View>
             )}
           </View>
 
-          {/* Role */}
+          {/* Spouse Name (Only if Married) */}
+          {(editing ? editedProfile.marital_status === 'Married' : profile.marital_status === 'Married') && (
+            <View style={styles.fieldContainer}>
+              <Text style={[styles.fieldLabel, dyn.sub]}>Spouse Name</Text>
+              {editing ? (
+                <TextInput
+                  style={[styles.input, dyn.input]}
+                  value={editedProfile.spouse_name}
+                  onChangeText={(text) => setEditedProfile({ ...editedProfile, spouse_name: text })}
+                  placeholder="Enter spouse full name"
+                  placeholderTextColor={colors.subText}
+                />
+              ) : (
+                <View style={[styles.input, dyn.input, styles.disabledInput]}>
+                  <Text style={[styles.inputText, dyn.text]}>{profile.spouse_name || 'Not Set'}</Text>
+                </View>
+              )}
+            </View>
+          )}
+
+          {/* Address */}
           <View style={styles.fieldContainer}>
-            <Text style={[styles.fieldLabel, dyn.sub]}>Role</Text>
+            <Text style={[styles.fieldLabel, dyn.sub]}>Permanent Address</Text>
+            {editing ? (
+              <TextInput
+                style={[styles.input, dyn.input, { height: 80, textAlignVertical: 'top', paddingTop: 10 }]}
+                value={editedProfile.address}
+                onChangeText={(text) => setEditedProfile({ ...editedProfile, address: text })}
+                placeholder="Enter complete address"
+                placeholderTextColor={colors.subText}
+                multiline
+              />
+            ) : (
+              <View style={[styles.input, dyn.input, styles.disabledInput, { height: 'auto', minHeight: 50, paddingVertical: 10 }]}>
+                <Text style={[styles.inputText, dyn.text]}>{profile.address || 'Not Set'}</Text>
+              </View>
+            )}
+          </View>
+        </View>
+
+        {/* EMERGENCY CONTACT */}
+        <View style={[styles.card, dyn.card]}>
+          <View style={styles.sectionHeader}>
+            <Ionicons name="alert-circle-outline" size={20} color="#E74C3C" />
+            <Text style={[styles.sectionTitle, dyn.text]}>Emergency Contact</Text>
+          </View>
+
+          <View style={styles.fieldContainer}>
+            <Text style={[styles.fieldLabel, dyn.sub]}>Contact Person</Text>
             {editing ? (
               <TextInput
                 style={[styles.input, dyn.input]}
-                value={editedProfile.role}
-                onChangeText={(text) =>
-                  setEditedProfile({ ...editedProfile, role: text })
-                }
-                placeholder="Enter your role"
+                value={editedProfile.emergency_contact_name}
+                onChangeText={(text) => setEditedProfile({ ...editedProfile, emergency_contact_name: text })}
+                placeholder="Name of emergency contact"
                 placeholderTextColor={colors.subText}
               />
             ) : (
               <View style={[styles.input, dyn.input, styles.disabledInput]}>
-                <Text style={[styles.inputText, dyn.text]}>{profile.role}</Text>
+                <Text style={[styles.inputText, dyn.text]}>{profile.emergency_contact_name || 'Not Set'}</Text>
               </View>
             )}
+          </View>
+
+          <View style={styles.fieldContainer}>
+            <Text style={[styles.fieldLabel, dyn.sub]}>Relationship</Text>
+            {editing ? (
+              <TextInput
+                style={[styles.input, dyn.input]}
+                value={editedProfile.emergency_contact_relation}
+                onChangeText={(text) => setEditedProfile({ ...editedProfile, emergency_contact_relation: text })}
+                placeholder="e.g. Spouse, Parent, Sibling"
+                placeholderTextColor={colors.subText}
+              />
+            ) : (
+              <View style={[styles.input, dyn.input, styles.disabledInput]}>
+                <Text style={[styles.inputText, dyn.text]}>{profile.emergency_contact_relation || 'Not Set'}</Text>
+              </View>
+            )}
+          </View>
+
+          <View style={styles.fieldContainer}>
+            <Text style={[styles.fieldLabel, dyn.sub]}>Contact Number</Text>
+            {editing ? (
+              <TextInput
+                style={[styles.input, dyn.input]}
+                value={editedProfile.emergency_contact_phone}
+                onChangeText={(text) => setEditedProfile({ ...editedProfile, emergency_contact_phone: text })}
+                placeholder="Phone number"
+                placeholderTextColor={colors.subText}
+                keyboardType="phone-pad"
+              />
+            ) : (
+              <View style={[styles.input, dyn.input, styles.disabledInput]}>
+                <Text style={[styles.inputText, dyn.text]}>{profile.emergency_contact_phone || 'Not Set'}</Text>
+              </View>
+            )}
+          </View>
+        </View>
+
+        {/* EMPLOYMENT INFORMATION */}
+        <View style={[styles.card, dyn.card]}>
+          <View style={styles.sectionHeader}>
+            <Ionicons name="briefcase-outline" size={20} color="#3498DB" />
+            <Text style={[styles.sectionTitle, dyn.text]}>Employment Details</Text>
+          </View>
+          <View style={styles.fieldContainer}>
+            <Text style={[styles.fieldLabel, dyn.sub]}>Role</Text>
+            <View style={[styles.input, dyn.input, styles.disabledInput]}>
+              <Text style={[styles.inputText, dyn.text]}>{profile.role || 'Not assigned'}</Text>
+            </View>
           </View>
 
           {/* Department */}
@@ -995,10 +1109,19 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
   },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
+    paddingBottom: 10,
+  },
   sectionTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    marginBottom: 20,
+    marginBottom: 0,
   },
   fieldContainer: {
     marginBottom: 16,
@@ -1054,6 +1177,31 @@ const styles = StyleSheet.create({
     color: '#666',
   },
   genderButtonTextActive: {
+    color: '#FFF',
+  },
+  statusRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  choiceButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    backgroundColor: '#F5F5F5',
+  },
+  choiceButtonActive: {
+    backgroundColor: '#F27121',
+    borderColor: '#F27121',
+  },
+  choiceButtonText: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '600',
+  },
+  choiceButtonTextActive: {
     color: '#FFF',
   },
   saveButton: {

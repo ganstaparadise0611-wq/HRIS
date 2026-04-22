@@ -46,18 +46,32 @@ function handleGetRequest() {
     }
     
     $user_id = intval($_GET['user_id']);
+    $type = isset($_GET['type']) ? $_GET['type'] : 'all'; // 'received', 'sent', 'all'
     $status = isset($_GET['status']) ? $_GET['status'] : null;
     
-    // Build Supabase query
-    $query = "user_id=eq.{$user_id}";
-    if ($status) {
-        $query .= "&status=eq.{$status}";
+    // Build query based on type
+    if ($type === 'received') {
+        $filter = "assigned_to=eq.{$user_id}";
+    } elseif ($type === 'sent') {
+        $filter = "user_id=eq.{$user_id}";
+    } else {
+        $filter = "or=(user_id.eq.{$user_id},assigned_to.eq.{$user_id})";
     }
-    $query .= "&order=created_at.desc";
+
+    if ($status) {
+        $filter .= "&status=eq.{$status}";
+    }
+    
+    // We want to join with employees to get names
+    // Note: In Supabase/PostgREST, we can use select with joins if relations are defined
+    // Assuming 'tasks' has foreign keys to 'employees' (via log_id or emp_id)
+    // For now, let's just fetch the tasks and names if the schema supports it.
+    // If not, we might need multiple requests or a different select string.
+    $select = "id,title,description,priority,status,start_date,end_date,due_date,created_at,updated_at,assigned_to,user_id";
     
     [$statusCode, $data, $err] = supabase_request(
         'GET',
-        "rest/v1/tasks?{$query}&select=id,title,description,priority,status,due_date,created_at,updated_at,assigned_to"
+        "rest/v1/tasks?{$filter}&select={$select}&order=created_at.desc"
     );
     
     if ($err) {
@@ -67,6 +81,10 @@ function handleGetRequest() {
     if ($statusCode !== 200) {
         throw new Exception('Failed to fetch tasks', $statusCode);
     }
+    
+    // Enrich data with names if necessary (optional but helpful)
+    // Since we don't know the exact relation names for joins, let's keep it simple for now
+    // or try to fetch names of all involved users.
     
     echo json_encode([
         'success' => true,
@@ -94,6 +112,8 @@ function handlePostRequest() {
     $title = trim($input['title']);
     $description = trim($input['description']);
     $priority = isset($input['priority']) ? $input['priority'] : 'medium';
+    $start_date = isset($input['start_date']) && !empty($input['start_date']) ? $input['start_date'] : null;
+    $end_date = isset($input['end_date']) && !empty($input['end_date']) ? $input['end_date'] : null;
     $due_date = isset($input['due_date']) && !empty($input['due_date']) ? $input['due_date'] : null;
     $assigned_to = isset($input['assigned_to']) ? intval($input['assigned_to']) : $user_id;
     
@@ -102,7 +122,13 @@ function handlePostRequest() {
         throw new Exception('Invalid priority value', 400);
     }
     
-    // Validate due_date format if provided
+    // Validate date formats if provided
+    if ($start_date && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $start_date)) {
+        throw new Exception('Invalid start_date format. Use YYYY-MM-DD', 400);
+    }
+    if ($end_date && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $end_date)) {
+        throw new Exception('Invalid end_date format. Use YYYY-MM-DD', 400);
+    }
     if ($due_date && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $due_date)) {
         throw new Exception('Invalid due_date format. Use YYYY-MM-DD', 400);
     }
@@ -118,6 +144,12 @@ function handlePostRequest() {
         'assigned_to' => $assigned_to
     ];
     
+    if ($start_date) {
+        $taskData['start_date'] = $start_date;
+    }
+    if ($end_date) {
+        $taskData['end_date'] = $end_date;
+    }
     if ($due_date) {
         $taskData['due_date'] = $due_date;
     }
@@ -125,7 +157,8 @@ function handlePostRequest() {
     [$statusCode, $result, $err] = supabase_request(
         'POST',
         'rest/v1/tasks',
-        $taskData
+        $taskData,
+        ['Prefer: return=representation']
     );
     
     if ($err) {
@@ -167,7 +200,7 @@ function handlePutRequest() {
     
     // Build update data
     $updateData = [];
-    $allowed_fields = ['title', 'description', 'priority', 'due_date', 'status'];
+    $allowed_fields = ['title', 'description', 'priority', 'start_date', 'end_date', 'due_date', 'status'];
     
     foreach ($allowed_fields as $field) {
         if (isset($input[$field])) {
@@ -180,7 +213,7 @@ function handlePutRequest() {
     }
     
     // Validate status if provided
-    if (isset($updateData['status']) && !in_array($updateData['status'], ['pending', 'in_progress', 'completed'])) {
+    if (isset($updateData['status']) && !in_array($updateData['status'], ['pending', 'in_progress', 'completed', 'verified', 'cancelled', 'suspended'])) {
         throw new Exception('Invalid status value', 400);
     }
     
@@ -188,10 +221,22 @@ function handlePutRequest() {
     if (isset($updateData['priority']) && !in_array($updateData['priority'], ['low', 'medium', 'high'])) {
         throw new Exception('Invalid priority value', 400);
     }
+
+    // Validate date formats if provided
+    if (isset($updateData['start_date']) && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $updateData['start_date'])) {
+        throw new Exception('Invalid start_date format. Use YYYY-MM-DD', 400);
+    }
+    if (isset($updateData['end_date']) && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $updateData['end_date'])) {
+        throw new Exception('Invalid end_date format. Use YYYY-MM-DD', 400);
+    }
+    if (isset($updateData['due_date']) && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $updateData['due_date'])) {
+        throw new Exception('Invalid due_date format. Use YYYY-MM-DD', 400);
+    }
     
+    $filter = "id=eq.{$task_id}&or=(user_id.eq.{$user_id},assigned_to.eq.{$user_id})";
     [$statusCode, $result, $err] = supabase_request(
         'PATCH',
-        "rest/v1/tasks?id=eq.{$task_id}&user_id=eq.{$user_id}",
+        "rest/v1/tasks?{$filter}",
         $updateData
     );
     
