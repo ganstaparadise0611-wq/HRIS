@@ -35,6 +35,7 @@ import { getBackendUrl } from '../../constants/backend-config';
 import { recheckNetwork } from '../../constants/network-detector';
 import { useCustomAlert } from '../../hooks/useCustomAlert';
 import { useTheme } from './ThemeContext';
+import Reanimated, { useAnimatedStyle, useSharedValue, withTiming, Easing, interpolate } from 'react-native-reanimated';
 
 type ChatData = {
   id: string; 
@@ -136,6 +137,7 @@ export default function UserChat() {
   const [chatData, setChatData] = useState<ChatData[]>([]);
   const [loadingChats, setLoadingChats] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [teamMembers, setTeamMembers] = useState<any[]>([]);
   const [selectedChat, setSelectedChat] = useState<ChatData | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
@@ -148,8 +150,35 @@ export default function UserChat() {
   const optionsSlideAnim = useRef(new Animated.Value(500)).current;
   const flatListRef = useRef<FlatList>(null);
 
-  useEffect(() => { loadUserData(); }, []);
+  // Entrance animations
+  const fadeAnim = useSharedValue(0);
+  React.useEffect(() => {
+    fadeAnim.value = withTiming(1, { duration: 800, easing: Easing.out(Easing.exp) });
+  }, []);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: fadeAnim.value,
+    transform: [{ translateY: interpolate(fadeAnim.value, [0, 1], [20, 0]) }]
+  }));
+
+  useEffect(() => { loadUserData(); loadTeamMembers(); }, []);
   useFocusEffect(useCallback(() => { if (currentUserId) loadConversations(); }, [currentUserId]));
+
+  const loadTeamMembers = async () => {
+    try {
+      const userId = await AsyncStorage.getItem('userId');
+      if (!userId) return;
+      const res = await fetch(`${getBackendUrl()}/get-department-employees.php?user_id=${userId}`, {
+        headers: { 'ngrok-skip-browser-warning': 'true' }
+      });
+      const data = await res.json();
+      if (data.ok && data.employees) {
+        setTeamMembers(data.employees);
+      }
+    } catch (e) {
+      console.log('Failed to load team members:', e);
+    }
+  };
 
   const loadUserData = async () => {
     const userId = await AsyncStorage.getItem('userId');
@@ -178,7 +207,7 @@ export default function UserChat() {
           last_message: conv.last_message || 'No messages yet',
           last_message_time: formatTime(conv.last_message_time),
           unread_count: conv.unread_count || 0,
-          online: Math.random() > 0.5,
+          online: conv.online || false,
           other_user_id: conv.other_user_id ?? undefined,
         })));
       }
@@ -331,13 +360,64 @@ export default function UserChat() {
             <Ionicons name="search" size={20} color={colors.subText} style={styles.searchIcon} />
             <TextInput style={[styles.searchInput, { color: colors.text }]} placeholder="Search chats..." placeholderTextColor={colors.subText} value={searchText} onChangeText={setSearchText} />
           </View>
+          <Reanimated.View style={[animatedStyle, { flex: 1 }]}>
           <FlatList
+            ListHeaderComponent={
+              teamMembers.length > 0 ? (
+                <View style={styles.teamSection}>
+                  <Text style={[styles.teamSectionSub, { color: colors.subText }]}>Start a chat with your team by clicking their profile down below.</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.teamScroll}>
+                    {teamMembers.map((member) => (
+                      <TouchableOpacity 
+                        key={member.emp_id} 
+                        style={styles.teamMemberItem}
+                        onPress={async () => {
+                          try {
+                            if (!currentUserId || !member.log_id) return;
+                            const res = await fetch(`${getBackendUrl()}/create-conversation.php`, {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
+                              body: JSON.stringify({
+                                creator_id: currentUserId,
+                                type: 'dm',
+                                name: `${currentUsername} & ${member.name.split(' ')[0]}`,
+                                participant_ids: [currentUserId, member.log_id]
+                              })
+                            });
+                            const data = await res.json();
+                            if (data.ok) {
+                              loadConversations(false);
+                            }
+                          } catch (e) {
+                            console.log('Failed to create DM', e);
+                          }
+                        }}
+                      >
+                        <UserAvatar
+                          userId={member.log_id}
+                          displayName={member.name}
+                          size={56}
+                          showOnline
+                          isOnline={member.is_online === true}
+                          backgroundColor="#F27121"
+                          onlineDotBorderColor={colors.background}
+                        />
+                        <Text style={[styles.teamMemberName, { color: colors.text }]} numberOfLines={2}>
+                          {member.name.split(' ')[0]}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+              ) : null
+            }
             data={chatData.filter(c => c.name.toLowerCase().includes(searchText.toLowerCase()))}
             renderItem={({ item }) => <ChatItem item={item} colorProps={colors} isDarkTheme={isDark} onLongPress={openChatOptions} onPress={(c) => { setSelectedChat(c); loadMessages(c.id); }} />}
             keyExtractor={item => item.id}
             contentContainerStyle={styles.listContent}
             refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadConversations(false); }} />}
           />
+          </Reanimated.View>
         </View>
       ) : (
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
@@ -393,9 +473,14 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottomWidth: 1 },
   headerTitle: { fontSize: 18, fontWeight: 'bold' },
   iconBtn: { padding: 4 },
-  searchContainer: { flexDirection: 'row', alignItems: 'center', margin: 20, paddingHorizontal: 15, borderRadius: 10, height: 45 },
+  searchContainer: { flexDirection: 'row', alignItems: 'center', margin: 20, paddingHorizontal: 15, borderRadius: 16, height: 45 },
   searchIcon: { marginRight: 10 },
   searchInput: { flex: 1 },
+  teamSection: { paddingHorizontal: 20, paddingBottom: 15 },
+  teamSectionSub: { fontSize: 13, marginBottom: 15 },
+  teamScroll: { paddingRight: 20, gap: 15 },
+  teamMemberItem: { alignItems: 'center', width: 64 },
+  teamMemberName: { fontSize: 12, marginTop: 6, textAlign: 'center' },
   listContent: { paddingHorizontal: 20 },
   chatItem: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
   chatItemInner: { flexDirection: 'row', alignItems: 'center', flex: 1 },
@@ -408,7 +493,7 @@ const styles = StyleSheet.create({
   timeText: { fontSize: 12 },
   messageFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   lastMessage: { fontSize: 14, flex: 1, marginRight: 10 },
-  unreadBadge: { backgroundColor: '#F27121', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 },
+  unreadBadge: { backgroundColor: '#F27121', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 12 },
   unreadText: { color: '#FFF', fontSize: 10, fontWeight: 'bold' },
   messageItemContainer: { marginBottom: 15, maxWidth: '75%', alignSelf: 'flex-start' },
   ownMessageContainer: { alignSelf: 'flex-end' },
@@ -416,19 +501,19 @@ const styles = StyleSheet.create({
   systemMessageBubble: { backgroundColor: 'transparent' },
   systemMessageText: { fontSize: 13, fontStyle: 'italic', textAlign: 'center' },
   senderName: { fontSize: 12, marginBottom: 4, marginLeft: 12 },
-  messageBubble: { borderRadius: 18, paddingHorizontal: 16, paddingVertical: 10, maxWidth: '100%' },
-  ownMessageBubble: { backgroundColor: '#F27121', borderBottomRightRadius: 4 },
+  messageBubble: { borderRadius: 24, paddingHorizontal: 16, paddingVertical: 10, maxWidth: '100%' },
+  ownMessageBubble: { backgroundColor: '#F27121', borderBottomRightRadius: 8 },
   messageText: { fontSize: 15, lineHeight: 20 },
   messageTime: { fontSize: 10, marginTop: 4, alignSelf: 'flex-end' },
-  mediaContainer: { marginBottom: 8, borderRadius: 10, overflow: 'hidden' },
-  messageImage: { width: 220, height: 160, borderRadius: 10 },
-  fileContainer: { flexDirection: 'row', alignItems: 'center', padding: 10, backgroundColor: 'rgba(0,0,0,0.05)', borderRadius: 10 },
+  mediaContainer: { marginBottom: 8, borderRadius: 16, overflow: 'hidden' },
+  messageImage: { width: 220, height: 160, borderRadius: 16 },
+  fileContainer: { flexDirection: 'row', alignItems: 'center', padding: 10, backgroundColor: 'rgba(0,0,0,0.05)', borderRadius: 16 },
   inputContainer: { flexDirection: 'row', alignItems: 'center', padding: 10, borderTopWidth: 1 },
   attachBtn: { padding: 10 },
-  messageInput: { flex: 1, borderRadius: 20, paddingHorizontal: 15, paddingVertical: 8, maxHeight: 100 },
+  messageInput: { flex: 1, borderRadius: 24, paddingHorizontal: 15, paddingVertical: 8, maxHeight: 100 },
   sendBtn: { padding: 10 },
   sheetOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  sheetContent: { borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 40 },
+  sheetContent: { borderTopLeftRadius: 32, borderTopRightRadius: 32, paddingBottom: 40 },
   sheetHandle: { width: 40, height: 4, backgroundColor: '#ccc', borderRadius: 2, alignSelf: 'center', margin: 10 },
   sheetOption: { flexDirection: 'row', alignItems: 'center', padding: 20 }
 });

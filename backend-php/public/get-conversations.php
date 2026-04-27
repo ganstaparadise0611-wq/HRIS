@@ -91,15 +91,17 @@ if ($partsStatus === 200 && is_array($allParts)) {
     }
 }
 
-// Step 4: Fetch usernames for DM participants identified (Batch)
+// Step 4: Fetch usernames and online status for DM participants identified (Batch)
 $userNamesMap = [];
+$userOnlineMap = [];
 if (!empty($dmOtherUserIds)) {
     $dmOtherUserIds = array_unique($dmOtherUserIds);
     $uIdList = implode(',', $dmOtherUserIds);
-    [$uStatus, $uData] = supabase_request('GET', "rest/v1/accounts?log_id=in.({$uIdList})&select=log_id,username");
+    [$uStatus, $uData] = supabase_request('GET', "rest/v1/accounts?log_id=in.({$uIdList})&select=log_id,username,is_online");
     if ($uStatus === 200 && is_array($uData)) {
         foreach ($uData as $u) {
             $userNamesMap[(string)$u['log_id']] = $u['username'];
+            $userOnlineMap[(string)$u['log_id']] = (bool)($u['is_online'] ?? false);
         }
     }
 }
@@ -143,10 +145,13 @@ foreach ($convIds as $cid) {
 if (!empty($senderIdsToFetch)) {
     $senderIdsToFetch = array_unique($senderIdsToFetch);
     $sIdList = implode(',', $senderIdsToFetch);
-    [$sStatus, $sData] = supabase_request('GET', "rest/v1/accounts?log_id=in.({$sIdList})&select=log_id,username");
+    [$sStatus, $sData] = supabase_request('GET', "rest/v1/accounts?log_id=in.({$sIdList})&select=log_id,username,is_online");
     if ($sStatus === 200 && is_array($sData)) {
         foreach ($sData as $s) {
             $userNamesMap[(string)$s['log_id']] = $s['username'];
+            if (!isset($userOnlineMap[(string)$s['log_id']])) {
+                $userOnlineMap[(string)$s['log_id']] = (bool)($s['is_online'] ?? false);
+            }
         }
     }
 }
@@ -186,6 +191,7 @@ foreach ($tempResults as $res) {
     ];
     if ($res['other_user_id']) {
         $payload['other_user_id'] = $res['other_user_id'];
+        $payload['online'] = $userOnlineMap[$res['other_user_id']] ?? false;
     }
     $finalConversations[] = $payload;
 }

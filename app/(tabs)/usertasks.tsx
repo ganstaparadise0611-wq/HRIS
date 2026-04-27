@@ -26,6 +26,7 @@ import CustomAlert from '../../components/CustomAlert';
 import { getBackendUrl } from '../../constants/backend-config';
 import { useCustomAlert } from '../../hooks/useCustomAlert';
 import { useTheme } from './ThemeContext';
+import Reanimated, { useAnimatedStyle, useSharedValue, withTiming, Easing, interpolate } from 'react-native-reanimated';
 
 interface Task {
   id: number;
@@ -97,6 +98,17 @@ export default function UserTasks() {
   const [formShareToFeed, setFormShareToFeed] = useState(false);
   const [pickerStep, setPickerStep] = useState<0 | 1 | 2>(0); // 0 = hidden, 1 = start, 2 = end
   const [viewDate, setViewDate] = useState(new Date());
+
+  // Entrance animations
+  const fadeAnim = useSharedValue(0);
+  React.useEffect(() => {
+    fadeAnim.value = withTiming(1, { duration: 800, easing: Easing.out(Easing.exp) });
+  }, []);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: fadeAnim.value,
+    transform: [{ translateY: interpolate(fadeAnim.value, [0, 1], [20, 0]) }]
+  }));
 
   useFocusEffect(
     useCallback(() => {
@@ -1336,15 +1348,15 @@ const createStyles = (colors: any, theme: string) => StyleSheet.create({
   taskStatus: { fontSize: 13, fontWeight: 'bold' },
 
   itemCard: {
-    borderRadius: 12,
+    borderRadius: 24,
     padding: 16,
     marginHorizontal: 15,
     marginTop: 15,
     elevation: 2,
     shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 15,
+    shadowOffset: { width: 0, height: 4 },
   },
   itemHeader: {
     flexDirection: 'row',
@@ -1421,14 +1433,14 @@ const createStyles = (colors: any, theme: string) => StyleSheet.create({
   form: { flex: 1 },
   input: {
     borderWidth: 1,
-    borderRadius: 8,
+    borderRadius: 16,
     padding: 12,
     fontSize: 16,
     marginBottom: 16,
   },
   textArea: {
     borderWidth: 1,
-    borderRadius: 8,
+    borderRadius: 16,
     padding: 12,
     fontSize: 16,
     marginBottom: 16,
@@ -1438,7 +1450,7 @@ const createStyles = (colors: any, theme: string) => StyleSheet.create({
   label: { fontSize: 16, fontWeight: 'bold', marginBottom: 8 },
   selectorButton: {
     borderWidth: 1,
-    borderRadius: 8,
+    borderRadius: 16,
     padding: 12,
     flexDirection: 'row',
     alignItems: 'center',
@@ -1455,7 +1467,7 @@ const createStyles = (colors: any, theme: string) => StyleSheet.create({
     flex: 1,
     paddingVertical: 8,
     paddingHorizontal: 12,
-    borderRadius: 8,
+    borderRadius: 16,
     borderWidth: 1,
     alignItems: 'center',
   },
@@ -1463,7 +1475,7 @@ const createStyles = (colors: any, theme: string) => StyleSheet.create({
 
   attachmentBox: {
     borderWidth: 1,
-    borderRadius: 8,
+    borderRadius: 16,
     padding: 12,
     marginBottom: 8,
   },
@@ -1525,7 +1537,7 @@ const createStyles = (colors: any, theme: string) => StyleSheet.create({
     flexDirection: 'row',
     marginTop: 10,
     marginBottom: 20,
-    borderRadius: 10,
+    borderRadius: 16,
     overflow: 'hidden',
   },
   prioritySegmentBtn: {
@@ -1537,8 +1549,8 @@ const createStyles = (colors: any, theme: string) => StyleSheet.create({
     gap: 6,
     borderWidth: 1,
   },
-  prioritySegmentFirst: { borderTopLeftRadius: 10, borderBottomLeftRadius: 10 },
-  prioritySegmentLast: { borderTopRightRadius: 10, borderBottomRightRadius: 10 },
+  prioritySegmentFirst: { borderTopLeftRadius: 16, borderBottomLeftRadius: 16 },
+  prioritySegmentLast: { borderTopRightRadius: 16, borderBottomRightRadius: 16 },
   prioritySegmentText: { fontSize: 13, fontWeight: '600' },
   attachmentSection: { flexDirection: 'row', alignItems: 'center', marginTop: 10 },
   attachmentAddBox: {
@@ -1552,7 +1564,7 @@ const createStyles = (colors: any, theme: string) => StyleSheet.create({
   sendButton: {
     backgroundColor: '#FBA15C',
     paddingVertical: 15,
-    borderRadius: 30,
+    borderRadius: 24,
     alignItems: 'center',
     marginTop: 30,
     marginBottom: 20,
@@ -1572,7 +1584,7 @@ const createStyles = (colors: any, theme: string) => StyleSheet.create({
     padding: 20,
   },
   selectorSheet: {
-    borderRadius: 16,
+    borderRadius: 24,
     padding: 16,
     maxHeight: '70%',
     backgroundColor: colors.card,
@@ -1593,8 +1605,8 @@ const createStyles = (colors: any, theme: string) => StyleSheet.create({
   selectorEmpty: { textAlign: 'center', paddingVertical: 16 },
   selectorCancelButton: {
     borderWidth: 1,
-    borderRadius: 8,
-    paddingVertical: 10,
+    borderRadius: 16,
+    padding: 12,
     alignItems: 'center',
     marginTop: 12,
   },
@@ -1607,8 +1619,8 @@ const createStyles = (colors: any, theme: string) => StyleSheet.create({
     padding: 20,
   },
   detailSheet: {
-    borderRadius: 16,
-    padding: 16,
+    borderRadius: 24,
+    padding: 20,
     maxHeight: '80%',
     backgroundColor: colors.card,
   },
@@ -1629,7 +1641,7 @@ const createStyles = (colors: any, theme: string) => StyleSheet.create({
     borderColor: 'rgba(0,0,0,0.1)',
     paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: 12,
+    borderRadius: 16,
   },
   statusOptionText: { fontSize: 11, fontWeight: '600' },
   statusUpdatingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
@@ -1642,7 +1654,7 @@ const createStyles = (colors: any, theme: string) => StyleSheet.create({
   centeredModalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
   modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.55)' },
   calendarBox: {
-    width: '100%', maxWidth: 340, borderRadius: 16, padding: 24,
+    width: '100%', maxWidth: 340, borderRadius: 24, padding: 24,
     elevation: 8, shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2, shadowRadius: 12,
   },

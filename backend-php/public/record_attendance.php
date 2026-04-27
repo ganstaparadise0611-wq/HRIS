@@ -42,6 +42,10 @@ if ($userId === '' || !in_array($action, ['clock_in', 'clock_out'], true)) {
     exit;
 }
 
+$lat    = isset($body['latitude'])  ? (float)$body['latitude']  : null;
+$lng    = isset($body['longitude']) ? (float)$body['longitude'] : null;
+$radius = isset($body['radius'])    ? (float)$body['radius']    : null;
+
 // Resolve log_id (user_id) to emp_id via employees table
 [$status, $empData, $err] = supabase_request(
     'GET',
@@ -67,10 +71,13 @@ $nowTime = date('H:i:s');
 
 if ($action === 'clock_in') {
     [$status, $result, $err] = supabase_insert('attendance', [
-        'emp_id' => $emp_id,
-        'timein' => $nowTime,
-        'timeout' => null,
-        'date'   => $today,
+        'emp_id'           => $emp_id,
+        'timein'           => $nowTime,
+        'timeout'          => null,
+        'date'             => $today,
+        'latitude_in'      => $lat,
+        'longitude_in'     => $lng,
+        'actual_radius_in' => $radius,
     ]);
     if ($err) {
         http_response_code(500);
@@ -109,12 +116,17 @@ if ($status !== 200 || !is_array($rows) || count($rows) === 0) {
 }
 $att_id = (int)$rows[0]['att_id'];
 
-[$status, $result, $err] = supabase_request(
-    'PATCH',
-    "rest/v1/attendance?att_id=eq.{$att_id}",
-    ['timeout' => $nowTime],
-    ['Prefer: return=representation']
-);
+    [$status, $result, $err] = supabase_request(
+        'PATCH',
+        "rest/v1/attendance?att_id=eq.{$att_id}",
+        [
+            'timeout'           => $nowTime,
+            'latitude_out'      => $lat,
+            'longitude_out'     => $lng,
+            'actual_radius_out' => $radius,
+        ],
+        ['Prefer: return=representation']
+    );
 if ($err) {
     http_response_code(500);
     echo json_encode(['ok' => false, 'message' => 'Failed to record clock-out', 'detail' => $err]);

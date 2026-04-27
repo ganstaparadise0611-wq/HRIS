@@ -1,16 +1,18 @@
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Modal, Platform, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 // @ts-ignore - DateTimePicker types may not be available
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import * as DocumentPicker from 'expo-document-picker';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import CustomAlert from '../../components/CustomAlert';
-import { useCustomAlert } from '../../hooks/useCustomAlert';
-import { getBackendUrl, SUPABASE_URL, SUPABASE_ANON_KEY } from '../../constants/backend-config';
+import { getBackendUrl, SUPABASE_ANON_KEY, SUPABASE_URL } from '../../constants/backend-config';
 import { recheckNetwork } from '../../constants/network-detector';
+import { useCustomAlert } from '../../hooks/useCustomAlert';
 import { useTheme } from './ThemeContext';
+import Reanimated, { useAnimatedStyle, useSharedValue, withTiming, Easing, interpolate } from 'react-native-reanimated';
 
 export default function UserOvertime() {
   const router = useRouter();
@@ -18,18 +20,32 @@ export default function UserOvertime() {
   const { visible, config, showAlert, hideAlert } = useCustomAlert();
   const isDark = theme === 'dark';
   
-  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [startDate, setStartDate] = useState<Date>(new Date());
+  const [endDate, setEndDate] = useState<Date>(new Date());
   const [startTime, setStartTime] = useState<Date>(new Date());
   const [endTime, setEndTime] = useState<Date>(new Date());
   const [reason, setReason] = useState('');
+  const [remarks, setRemarks] = useState('');
+  const [overtimeType, setOvertimeType] = useState('Regular OT');
+  const [leaveType, setLeaveType] = useState('Compensatory Day Off');
+  const [attachments, setAttachments] = useState<any[]>([]);
   const [username, setUsername] = useState<string | null>(null);
   const [empId, setEmpId] = useState<number | null>(null);
   const [history, setHistory] = useState<any[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showEndDatePicker, setShowEndDatePicker] = useState(false);
   const [showStartTimePicker, setShowStartTimePicker] = useState(false);
   const [showEndTimePicker, setShowEndTimePicker] = useState(false);
+  const [showOvertimeTypeDropdown, setShowOvertimeTypeDropdown] = useState(false);
+  const [showLeaveTypeDropdown, setShowLeaveTypeDropdown] = useState(false);
+  const [dropdownButtonLayout, setDropdownButtonLayout] = useState({ x: 0, y: 0, width: 0, height: 0 });
+  const overtimeTypeRef = useRef<View>(null);
+  const leaveTypeRef = useRef<View>(null);
+  
+  const overtimeTypes = ['Regular OT', 'Extra Leave', 'Emergency'];
+  const leaveTypes = ['Compensatory Day Off', 'Leave Encashment', 'Weekend Off'];
 
   // Build backend URL for a PHP endpoint
   const buildPhpUrl = (path: string, opts?: { usePublic?: boolean }) => {
@@ -87,6 +103,7 @@ export default function UserOvertime() {
       } catch (_e) {
         // Ignore storage errors
       } finally {
+        await loadDraftForm();
         await loadHistory();
       }
     };
@@ -211,17 +228,20 @@ export default function UserOvertime() {
 
   // Calculate total hours
   const calculateHours = (): number => {
-    const start = new Date(startTime);
-    const end = new Date(endTime);
+    const start = new Date(startDate);
+    start.setHours(startTime.getHours(), startTime.getMinutes(), 0, 0);
     
-    // Handle case where end time is before start time (next day)
+    const end = new Date(endDate);
+    end.setHours(endTime.getHours(), endTime.getMinutes(), 0, 0);
+    
+    // Handle case where end time is before start time (if user forgets to change date)
     if (end < start) {
       end.setDate(end.getDate() + 1);
     }
     
     const diffMs = end.getTime() - start.getTime();
     const diffHours = diffMs / (1000 * 60 * 60);
-    return Math.round(diffHours * 10) / 10; // Round to 1 decimal place
+    return Math.max(0, Math.round(diffHours * 10) / 10); // Round to 1 decimal place
   };
 
   // Format date for display
@@ -251,9 +271,15 @@ export default function UserOvertime() {
   };
 
   // Submit overtime request
-  const submitOvertime = async () => {
+  const submitOvertime = async (asDraft: boolean = false) => {
     if (!reason.trim()) {
       showAlert({ type: 'error', title: 'Missing information', message: 'Please enter a reason for your overtime.' });
+      return;
+    }
+
+    if (asDraft) {
+      // Save as draft
+      await saveDraft();
       return;
     }
 
@@ -266,10 +292,14 @@ export default function UserOvertime() {
       const payload = {
         action: 'create',
         emp_id: resolvedEmpId,
-        date: formatDateForDB(selectedDate),
+        date: formatDateForDB(startDate),
+        end_date: formatDateForDB(endDate),
         start_time: formatTime(startTime),
         end_time: formatTime(endTime),
         reason: reason.trim(),
+        remarks: remarks.trim(),
+        overtime_type: overtimeType,
+        leave_type: overtimeType === 'Extra Leave' ? leaveType : null,
       };
 
       const res = await fetchPhpWithPublicFallback('/overtime_requests.php', {
@@ -296,8 +326,44 @@ export default function UserOvertime() {
         throw new Error(result.message || 'Failed to submit overtime request.');
       }
 
+      let overtimeId = null;
+      if (result.data && result.data.length > 0) {
+        overtimeId = result.data[0].ovt_id;
+      }
+
+      // Upload attachments if there are any and we got an overtime_id
+      if (attachments.length > 0 && overtimeId) {
+        for (const attachment of attachments) {
+          try {
+            const formData = new FormData();
+            formData.append('ovt_id', String(overtimeId));
+            formData.append('file', {
+              uri: attachment.uri,
+              name: attachment.name,
+              type: attachment.mimeType,
+            } as any);
+
+            await fetchPhpWithPublicFallback('/overtime-attachments.php', {
+              method: 'POST',
+              body: formData,
+            });
+          } catch (uploadErr) {
+            console.warn(`Error uploading attachment ${attachment.name}:`, uploadErr);
+          }
+        }
+      }
+
       showAlert({ type: 'success', title: 'Success', message: 'Overtime request submitted successfully!' });
       setReason('');
+      setRemarks('');
+      setStartDate(new Date());
+      setEndDate(new Date());
+      setStartTime(new Date(new Date().setHours(17, 0, 0, 0)));
+      setEndTime(new Date(new Date().setHours(20, 0, 0, 0)));
+      setOvertimeType('Regular OT');
+      setLeaveType('Compensatory Day Off');
+      setAttachments([]);
+      await clearDraft();
       await loadHistory();
     } catch (error: any) {
       showAlert({ type: 'error', title: 'Error', message: error.message || 'Unable to submit overtime request.' });
@@ -345,6 +411,82 @@ export default function UserOvertime() {
     }
   };
 
+  // Save draft to AsyncStorage
+  const saveDraft = async () => {
+    try {
+      const draft = {
+        startDate: startDate?.toISOString() || null,
+        endDate: endDate?.toISOString() || null,
+        startTime: startTime?.toISOString() || null,
+        endTime: endTime?.toISOString() || null,
+        reason,
+        remarks,
+        overtimeType,
+        leaveType,
+        attachments: attachments.map(a => ({ name: a.name })),
+      };
+      await AsyncStorage.setItem('overtimeDraft', JSON.stringify(draft));
+      showAlert({ type: 'success', title: 'Saved', message: 'Your overtime request has been saved as draft.' });
+    } catch (error) {
+      showAlert({ type: 'error', title: 'Error', message: 'Failed to save draft.' });
+    }
+  };
+
+  // Load draft from AsyncStorage
+  const loadDraftForm = async () => {
+    try {
+      const draftData = await AsyncStorage.getItem('overtimeDraft');
+      if (draftData) {
+        const draft = JSON.parse(draftData);
+        if (draft.startDate) setStartDate(new Date(draft.startDate));
+        if (draft.endDate) setEndDate(new Date(draft.endDate));
+        if (draft.startTime) setStartTime(new Date(draft.startTime));
+        if (draft.endTime) setEndTime(new Date(draft.endTime));
+        if (draft.reason) setReason(draft.reason);
+        if (draft.remarks) setRemarks(draft.remarks);
+        if (draft.overtimeType) setOvertimeType(draft.overtimeType);
+        if (draft.leaveType) setLeaveType(draft.leaveType);
+      }
+    } catch (error) {
+      // Silently fail
+    }
+  };
+
+  // Clear draft
+  const clearDraft = async () => {
+    try {
+      await AsyncStorage.removeItem('overtimeDraft');
+    } catch (error) {
+      // Silently fail
+    }
+  };
+
+  // Pick and add attachment
+  const pickAttachment = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['application/pdf', 'image/*', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+      });
+
+      if (result.canceled === false && result.assets && result.assets.length > 0) {
+        const file = result.assets[0];
+        setAttachments([...attachments, {
+          name: file.name,
+          size: file.size,
+          mimeType: file.mimeType,
+          uri: file.uri,
+        }]);
+      }
+    } catch (error) {
+      showAlert({ type: 'error', title: 'Error', message: 'Failed to pick file.' });
+    }
+  };
+
+  // Remove attachment
+  const removeAttachment = (index: number) => {
+    setAttachments(attachments.filter((_, i) => i !== index));
+  };
+
   const totalHours = calculateHours();
 
   const dyn = {
@@ -354,6 +496,17 @@ export default function UserOvertime() {
     card: { backgroundColor: colors.card },
     input: { backgroundColor: isDark ? '#252525' : '#F0F0F0', color: colors.text },
   };
+
+  // Entrance animations
+  const fadeAnim = useSharedValue(0);
+  React.useEffect(() => {
+    fadeAnim.value = withTiming(1, { duration: 800, easing: Easing.out(Easing.exp) });
+  }, []);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: fadeAnim.value,
+    transform: [{ translateY: interpolate(fadeAnim.value, [0, 1], [20, 0]) }]
+  }));
 
   return (
     <SafeAreaView style={[styles.container, dyn.bg]} edges={['top', 'left', 'right']}>
@@ -368,7 +521,7 @@ export default function UserOvertime() {
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
-        
+        <Reanimated.View style={animatedStyle}>
         {/* TIME CARD */}
         <View style={[styles.timeCard, dyn.card]}> 
             <Text style={styles.cardLabel}>TOTAL HOURS</Text>
@@ -394,12 +547,144 @@ export default function UserOvertime() {
         <Text style={[styles.sectionTitle, dyn.text]}>REQUEST DETAILS</Text>
         
         <View style={styles.inputContainer}>
-            <Text style={[styles.inputLabel, dyn.sub]}>Date</Text>
+            <Text style={[styles.inputLabel, dyn.sub]}>Start Date</Text>
             <TouchableOpacity style={[styles.fakeInput, dyn.input]} onPress={() => setShowDatePicker(true)}>
-                <Text style={[styles.inputText, dyn.text]}>{formatDate(selectedDate)}</Text>
-                <Ionicons name="calendar" size={20} color="#F27121" />
+                <Text style={[styles.inputText, dyn.text]}>{formatDate(startDate)}</Text>
+                <Ionicons name="calendar-outline" size={20} color={colors.subText} />
             </TouchableOpacity>
         </View>
+
+        <View style={styles.inputContainer}>
+            <Text style={[styles.inputLabel, dyn.sub]}>End Date</Text>
+            <TouchableOpacity style={[styles.fakeInput, dyn.input]} onPress={() => setShowEndDatePicker(true)}>
+                <Text style={[styles.inputText, dyn.text]}>{formatDate(endDate)}</Text>
+                <Ionicons name="calendar-outline" size={20} color={colors.subText} />
+            </TouchableOpacity>
+        </View>
+
+        <View style={styles.inputContainer}>
+            <Text style={[styles.inputLabel, dyn.sub]}>Overtime Type</Text>
+            <View ref={overtimeTypeRef}>
+                <TouchableOpacity 
+                    style={[styles.fakeInput, dyn.input]}
+                    onPress={() => {
+                        overtimeTypeRef.current?.measureInWindow((x, y, width, height) => {
+                            setDropdownButtonLayout({ x, y, width, height });
+                            setShowOvertimeTypeDropdown(true);
+                        });
+                    }}
+                >
+                    <Text style={[styles.inputText, dyn.text]}>{overtimeType}</Text>
+                    <Ionicons name={showOvertimeTypeDropdown ? "chevron-up" : "chevron-down"} size={20} color={colors.subText} />
+                </TouchableOpacity>
+            </View>
+            <Modal
+                visible={showOvertimeTypeDropdown}
+                transparent={true}
+                animationType="fade"
+                onRequestClose={() => setShowOvertimeTypeDropdown(false)}
+            >
+                <TouchableOpacity 
+                    style={styles.modalOverlay}
+                    activeOpacity={1}
+                    onPress={() => setShowOvertimeTypeDropdown(false)}
+                >
+                    <View 
+                        style={[
+                            styles.dropdownMenu, 
+                            dyn.card, 
+                            { 
+                                borderColor: colors.border,
+                                position: 'absolute',
+                                top: dropdownButtonLayout.y + dropdownButtonLayout.height + 5,
+                                left: dropdownButtonLayout.x,
+                                width: dropdownButtonLayout.width,
+                            }
+                        ]}
+                        onStartShouldSetResponder={() => true}
+                    >
+                        {overtimeTypes.map((type) => (
+                            <TouchableOpacity
+                                key={type}
+                                style={[styles.dropdownItem, { borderBottomColor: colors.border }]}
+                                onPress={() => {
+                                    setOvertimeType(type);
+                                    setShowOvertimeTypeDropdown(false);
+                                }}
+                            >
+                                <Text style={[styles.dropdownItemText, dyn.text, overtimeType === type && { color: '#F27121', fontWeight: 'bold' }]}>
+                                    {type}
+                                </Text>
+                                {overtimeType === type && <Ionicons name="checkmark" size={20} color="#F27121" />}
+                            </TouchableOpacity>
+                        ))}
+                    </View>
+                </TouchableOpacity>
+            </Modal>
+        </View>
+
+        {overtimeType === 'Extra Leave' && (
+            <View style={styles.inputContainer}>
+                <Text style={[styles.inputLabel, dyn.sub]}>Leave Type</Text>
+                <View ref={leaveTypeRef}>
+                    <TouchableOpacity 
+                        style={[styles.fakeInput, dyn.input]}
+                        onPress={() => {
+                            leaveTypeRef.current?.measureInWindow((x, y, width, height) => {
+                                setDropdownButtonLayout({ x, y, width, height });
+                                setShowLeaveTypeDropdown(true);
+                            });
+                        }}
+                    >
+                        <Text style={[styles.inputText, dyn.text]}>{leaveType}</Text>
+                        <Ionicons name={showLeaveTypeDropdown ? "chevron-up" : "chevron-down"} size={20} color={colors.subText} />
+                    </TouchableOpacity>
+                </View>
+                <Modal
+                    visible={showLeaveTypeDropdown}
+                    transparent={true}
+                    animationType="fade"
+                    onRequestClose={() => setShowLeaveTypeDropdown(false)}
+                >
+                    <TouchableOpacity 
+                        style={styles.modalOverlay}
+                        activeOpacity={1}
+                        onPress={() => setShowLeaveTypeDropdown(false)}
+                    >
+                        <View 
+                            style={[
+                                styles.dropdownMenu, 
+                                dyn.card, 
+                                { 
+                                    borderColor: colors.border,
+                                    position: 'absolute',
+                                    top: dropdownButtonLayout.y + dropdownButtonLayout.height + 5,
+                                    left: dropdownButtonLayout.x,
+                                    width: dropdownButtonLayout.width,
+                                }
+                            ]}
+                            onStartShouldSetResponder={() => true}
+                        >
+                            {leaveTypes.map((type) => (
+                                <TouchableOpacity
+                                    key={type}
+                                    style={[styles.dropdownItem, { borderBottomColor: colors.border }]}
+                                    onPress={() => {
+                                        setLeaveType(type);
+                                        setShowLeaveTypeDropdown(false);
+                                    }}
+                                >
+                                    <Text style={[styles.dropdownItemText, dyn.text, leaveType === type && { color: '#F27121', fontWeight: 'bold' }]}>
+                                        {type}
+                                    </Text>
+                                    {leaveType === type && <Ionicons name="checkmark" size={20} color="#F27121" />}
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+                    </TouchableOpacity>
+                </Modal>
+            </View>
+        )}
 
         <View style={styles.inputContainer}>
             <Text style={[styles.inputLabel, dyn.sub]}>Reason / Project</Text>
@@ -412,15 +697,75 @@ export default function UserOvertime() {
             />
         </View>
 
-        <TouchableOpacity 
-            style={[styles.submitBtn, submitting && styles.submitBtnDisabled]} 
-            onPress={submitOvertime}
-            disabled={submitting}
-        >
-            <Text style={styles.submitText}>
-                {submitting ? 'SUBMITTING...' : 'SUBMIT REQUEST'}
-            </Text>
-        </TouchableOpacity>
+        <View style={styles.inputContainer}>
+            <Text style={[styles.inputLabel, dyn.sub]}>Remarks</Text>
+            <TextInput 
+                style={[styles.textInput, dyn.input, { height: 80, textAlignVertical: 'top' }]} 
+                placeholder="Additional remarks or comments..." 
+                placeholderTextColor={colors.subText}
+                multiline
+                value={remarks}
+                onChangeText={setRemarks}
+            />
+        </View>
+
+        <View style={styles.inputContainer}>
+            <Text style={[styles.inputLabel, dyn.sub]}>Attachments</Text>
+            <TouchableOpacity 
+                style={[styles.attachmentButton, dyn.input]}
+                onPress={pickAttachment}
+            >
+                <MaterialCommunityIcons name="upload" size={20} color="#F27121" />
+                <Text style={[styles.attachmentButtonText, { color: '#F27121' }]}>
+                    {attachments.length === 0 ? 'UPLOAD FILES' : `${attachments.length} FILE(S)`}
+                </Text>
+            </TouchableOpacity>
+            {attachments.length > 0 && (
+                <View style={styles.attachmentsList}>
+                    {attachments.map((file, index) => (
+                        <View key={index} style={[styles.attachmentItem, dyn.card]}>
+                            <View style={styles.attachmentItemContent}>
+                                <MaterialCommunityIcons name="file-document" size={20} color="#F27121" />
+                                <View style={styles.attachmentItemInfo}>
+                                    <Text style={[styles.attachmentItemName, dyn.text]} numberOfLines={1}>
+                                        {file.name}
+                                    </Text>
+                                    <Text style={[styles.attachmentItemSize, dyn.sub]}>
+                                        {(file.size / 1024).toFixed(1)} KB
+                                    </Text>
+                                </View>
+                            </View>
+                            <TouchableOpacity 
+                                onPress={() => removeAttachment(index)}
+                                style={styles.attachmentItemRemove}
+                            >
+                                <Ionicons name="close-circle" size={20} color="#E74C3C" />
+                            </TouchableOpacity>
+                        </View>
+                    ))}
+                </View>
+            )}
+        </View>
+
+        <View style={styles.buttonRow}>
+            <TouchableOpacity 
+                style={[styles.draftButton, { borderColor: colors.border }]} 
+                onPress={() => submitOvertime(true)}
+                disabled={submitting}
+            >
+                <Ionicons name="save-outline" size={20} color="#F27121" />
+                <Text style={styles.draftButtonText}>SAVE AS DRAFT</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+                style={[styles.submitBtn, submitting && styles.submitBtnDisabled]} 
+                onPress={() => submitOvertime(false)}
+                disabled={submitting}
+            >
+                <Text style={styles.submitText}>
+                    {submitting ? 'SUBMITTING...' : 'SUBMIT REQUEST'}
+                </Text>
+            </TouchableOpacity>
+        </View>
 
         <Text style={[styles.sectionTitle, dyn.text]}>RECENT REQUESTS</Text>
         {loadingHistory ? (
@@ -484,21 +829,28 @@ export default function UserOvertime() {
                         style={[styles.datePickerContainer, dyn.card, { borderColor: colors.border }]}
                         onStartShouldSetResponder={() => true}
                     >
-                        <Text style={[styles.datePickerTitle, dyn.text]}>Select Date</Text>
+                        <Text style={[styles.datePickerTitle, dyn.text]}>Select Start Date</Text>
                         <DateTimePicker
-                            value={selectedDate}
+                            value={startDate}
                             mode="date"
                             display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                            onChange={(event: any, selectedDate?: Date) => {
+                            onChange={(event: any, date?: Date) => {
                                 if (Platform.OS === 'android') {
                                     setShowDatePicker(false);
-                                    if (event.type === 'set' && selectedDate) {
-                                        setSelectedDate(selectedDate);
+                                    if (event.type === 'set' && date) {
+                                        setStartDate(date);
+                                        if (endDate < date) {
+                                            setEndDate(date);
+                                        }
                                     }
-                                } else if (Platform.OS === 'ios' && selectedDate) {
-                                    setSelectedDate(selectedDate);
+                                } else if (Platform.OS === 'ios' && date) {
+                                    setStartDate(date);
+                                    if (endDate < date) {
+                                        setEndDate(date);
+                                    }
                                 }
                             }}
+                            themeVariant={isDark ? "dark" : "light"}
                             minimumDate={new Date()}
                         />
                         {Platform.OS === 'ios' && (
@@ -512,6 +864,70 @@ export default function UserOvertime() {
                                 <TouchableOpacity
                                     style={[styles.datePickerButton, { backgroundColor: '#F27121' }]}
                                     onPress={() => setShowDatePicker(false)}
+                                >
+                                    <Text style={styles.datePickerButtonText}>Done</Text>
+                                </TouchableOpacity>
+                            </View>
+                        )}
+                    </View>
+                </TouchableOpacity>
+            </Modal>
+        )}
+
+        {/* End Date Picker Modal */}
+        {showEndDatePicker && (
+            <Modal
+                visible={showEndDatePicker}
+                transparent={true}
+                animationType="fade"
+                onRequestClose={() => setShowEndDatePicker(false)}
+            >
+                <TouchableOpacity 
+                    style={styles.modalOverlay}
+                    activeOpacity={1}
+                    onPress={() => setShowEndDatePicker(false)}
+                >
+                    <View 
+                        style={[styles.datePickerContainer, dyn.card, { borderColor: colors.border }]}
+                        onStartShouldSetResponder={() => true}
+                    >
+                        <Text style={[styles.datePickerTitle, dyn.text]}>Select End Date</Text>
+                        <DateTimePicker
+                            value={endDate}
+                            mode="date"
+                            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                            onChange={(event: any, date?: Date) => {
+                                if (Platform.OS === 'android') {
+                                    setShowEndDatePicker(false);
+                                    if (event.type === 'set' && date) {
+                                        if (date < startDate) {
+                                            showAlert({ type: 'error', title: 'Invalid Date', message: 'End date cannot be before start date.'});
+                                        } else {
+                                            setEndDate(date);
+                                        }
+                                    }
+                                } else if (Platform.OS === 'ios' && date) {
+                                    if (date < startDate) {
+                                        showAlert({ type: 'error', title: 'Invalid Date', message: 'End date cannot be before start date.'});
+                                    } else {
+                                        setEndDate(date);
+                                    }
+                                }
+                            }}
+                            themeVariant={isDark ? "dark" : "light"}
+                            minimumDate={startDate}
+                        />
+                        {Platform.OS === 'ios' && (
+                            <View style={styles.datePickerButtons}>
+                                <TouchableOpacity
+                                    style={[styles.datePickerButton, { backgroundColor: colors.border }]}
+                                    onPress={() => setShowEndDatePicker(false)}
+                                >
+                                    <Text style={[styles.datePickerButtonText, dyn.text]}>Cancel</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={[styles.datePickerButton, { backgroundColor: '#F27121' }]}
+                                    onPress={() => setShowEndDatePicker(false)}
                                 >
                                     <Text style={styles.datePickerButtonText}>Done</Text>
                                 </TouchableOpacity>
@@ -630,6 +1046,7 @@ export default function UserOvertime() {
             </Modal>
         )}
 
+        </Reanimated.View>
       </ScrollView>
 
       <CustomAlert
@@ -653,7 +1070,7 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 18, fontWeight: 'bold' },
   iconBtn: { padding: 5 },
   content: { padding: 20 },
-  timeCard: { backgroundColor: '#252525', borderRadius: 15, padding: 25, alignItems: 'center', marginBottom: 30, borderTopWidth: 4, borderTopColor: '#F27121' },
+  timeCard: { backgroundColor: '#252525', borderRadius: 28, padding: 25, alignItems: 'center', marginBottom: 30, borderTopWidth: 4, borderTopColor: '#F27121' },
   cardLabel: { color: '#888', fontSize: 12, fontWeight: 'bold', letterSpacing: 1, marginBottom: 10 },
   timeDisplay: { flexDirection: 'row', alignItems: 'flex-end', marginBottom: 20 },
   bigTime: { color: '#FFF', fontSize: 48, fontWeight: 'bold', marginHorizontal: 10, lineHeight: 50 },
@@ -667,11 +1084,11 @@ const styles = StyleSheet.create({
   inputLabel: { marginBottom: 8, fontSize: 12 },
   fakeInput: { padding: 15, borderRadius: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   inputText: { fontSize: 16 },
-  textInput: { padding: 15, borderRadius: 10, fontSize: 16 },
-  submitBtn: { backgroundColor: '#F27121', padding: 18, borderRadius: 12, alignItems: 'center', marginBottom: 30 },
+  textInput: { padding: 15, borderRadius: 16, fontSize: 16 },
+  submitBtn: { backgroundColor: '#F27121', padding: 15, borderRadius: 20, alignItems: 'center', flex: 1, flexDirection: 'row', justifyContent: 'center' },
   submitBtnDisabled: { opacity: 0.6 },
-  submitText: { color: '#FFF', fontWeight: 'bold', fontSize: 16 },
-  historyItem: { padding: 15, borderRadius: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  submitText: { color: '#FFF', fontWeight: 'bold', fontSize: 14 },
+  historyItem: { padding: 20, borderRadius: 24, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 15 },
   historyDate: { fontWeight: 'bold', marginBottom: 2 },
   historyReason: { fontSize: 12 },
   historyHours: { fontWeight: 'bold', fontSize: 16 },
@@ -711,5 +1128,97 @@ const styles = StyleSheet.create({
     color: '#FFF',
     fontWeight: 'bold',
     fontSize: 16,
+  },
+  dropdownMenu: {
+    minWidth: 200,
+    borderRadius: 10,
+    borderWidth: 1,
+    overflow: 'hidden',
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+  },
+  dropdownItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 15,
+    paddingHorizontal: 20,
+    borderBottomWidth: 1,
+  },
+  dropdownItemText: {
+    fontSize: 16,
+  },
+  attachmentButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 15,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    gap: 8,
+  },
+  attachmentButtonText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    letterSpacing: 0.5,
+  },
+  attachmentsList: {
+    marginTop: 12,
+    gap: 10,
+  },
+  attachmentItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.1)',
+  },
+  attachmentItemContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+  },
+  attachmentItemInfo: {
+    flex: 1,
+  },
+  attachmentItemName: {
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  attachmentItemSize: {
+    fontSize: 11,
+  },
+  attachmentItemRemove: {
+    padding: 8,
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 20,
+    marginBottom: 30,
+  },
+    draftButton: {
+    borderWidth: 1.5,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 15,
+    borderRadius: 20,
+    gap: 8,
+    flex: 1,
+  },
+  draftButtonText: {
+    color: '#F27121',
+    fontWeight: 'bold',
+    fontSize: 14,
+    letterSpacing: 0.5,
   },
 });

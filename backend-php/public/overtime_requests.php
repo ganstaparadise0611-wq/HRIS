@@ -57,13 +57,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
                 $item['ovt_id'] = $item['t_id'];
             }
             
-            // Extract end_time from reason if it was stored there
+            // Extract end_time and end_date if they exist in the new structure
+            $end_time = $item['end_time'] ?? null;
             $reason = $item['reason'] ?? '';
-            $end_time = null;
             
-            // Check if reason contains " | End: HH:MM" pattern
-            if (preg_match('/\s+\|\s+End:\s+(\d{2}:\d{2})/', $reason, $matches)) {
-                $end_time = $matches[1];
+            // Fallback: Check if reason contains " | End: HH:MM" pattern (from old data before migration)
+            if (empty($end_time) && preg_match('/\s+\|\s+End:\s+(\d{2}:\d{2})/', $reason, $matches)) {
+                $end_time = $matches[1] . ':00';
                 // Remove the end_time from reason to restore original
                 $item['reason'] = preg_replace('/\s+\|\s+End:\s+\d{2}:\d{2}/', '', $reason);
             }
@@ -73,7 +73,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
             if ($time_value && $end_time) {
                 // Format time as "HH:MM-HH:MM" for React Native
                 $start_time_formatted = substr($time_value, 0, 5); // Get HH:MM from TIME
-                $item['time'] = $start_time_formatted . '-' . $end_time;
+                $end_time_formatted = substr($end_time, 0, 5);
+                $item['time'] = $start_time_formatted . '-' . $end_time_formatted;
             } elseif ($time_value) {
                 // If no end_time found, just use start_time
                 $item['time'] = substr($time_value, 0, 5);
@@ -105,9 +106,13 @@ $action = $body['action'] ?? '';
 if ($action === 'create') {
     $emp_id = $body['emp_id'] ?? null;
     $date = $body['date'] ?? null;
+    $end_date = $body['end_date'] ?? $date;
     $start_time = $body['start_time'] ?? null;
     $end_time = $body['end_time'] ?? null;
     $reason = $body['reason'] ?? null;
+    $remarks = $body['remarks'] ?? null;
+    $overtime_type = $body['overtime_type'] ?? 'Regular OT';
+    $leave_type = $body['leave_type'] ?? null;
     
     if (empty($emp_id) || empty($date) || empty($start_time) || empty($end_time) || empty($reason)) {
         http_response_code(400);
@@ -117,28 +122,32 @@ if ($action === 'create') {
     
     // Calculate total hours
     $start = new DateTime($date . ' ' . $start_time);
-    $end = new DateTime($date . ' ' . $end_time);
+    $end = new DateTime($end_date . ' ' . $end_time);
     
-    // Handle case where end time is next day
-    if ($end < $start) {
+    // Handle case where end time is next day but end_date was not provided explicitly different
+    if ($end < $start && $date === $end_date) {
         $end->modify('+1 day');
+        $end_date = $end->format('Y-m-d');
     }
-    
-    $diff = $start->diff($end);
-    $total_hours = $diff->h + ($diff->i / 60) + ($diff->s / 3600);
-    
-    // The 'time' column in ovts table is TIME type, so we can only store a single time value
-    // We'll store start_time in the TIME column and append end_time to reason in a parseable format
-    // The GET endpoint will reconstruct the time range when returning data
     
     // Convert "17:00" to "17:00:00" for PostgreSQL TIME type
     $start_time_formatted = $start_time . (strlen($start_time) === 5 ? ':00' : '');
+    $end_time_formatted = $end_time . (strlen($end_time) === 5 ? ':00' : '');
     
+    // SAFETY BACKUP: We also append the end time to the reason string
+    // just in case the SQL migration to add the 'end_time' column wasn't run!
+    $reason_with_backup = $reason . ' | End: ' . substr($end_time_formatted, 0, 5);
+
     $insertData = [
         'emp_id' => $emp_id,
         'date' => $date,
-        'time' => $start_time_formatted, // Store start time in TIME column (PostgreSQL TIME type)
-        'reason' => $reason . ' | End: ' . $end_time, // Store end_time in reason (will be extracted in GET)
+        'end_date' => $end_date,
+        'time' => $start_time_formatted,
+        'end_time' => $end_time_formatted,
+        'reason' => $reason_with_backup,
+        'remarks' => $remarks,
+        'overtime_type' => $overtime_type,
+        'leave_type' => $leave_type,
         'status' => 'Pending',
     ];
     
@@ -147,8 +156,7 @@ if ($action === 'create') {
         'POST',
         'rest/v1/ovts',
         [$insertData],
-        ['Prefer: return=representation'],
-        true // Use service role key to bypass RLS
+        ['Prefer: return=representation']
     );
     
     if ($err) {
@@ -191,9 +199,13 @@ if (empty($t_id) && ($action === 'update' || $action === 'delete')) {
 // UPDATE endpoint
 if ($action === 'update') {
     $date = $body['date'] ?? null;
+    $end_date = $body['end_date'] ?? $date;
     $start_time = $body['start_time'] ?? null;
     $end_time = $body['end_time'] ?? null;
     $reason = $body['reason'] ?? null;
+    $remarks = $body['remarks'] ?? null;
+    $overtime_type = $body['overtime_type'] ?? null;
+    $leave_type = $body['leave_type'] ?? null;
 
     if (!$date || !$start_time || !$end_time || !$reason) {
         http_response_code(400);
@@ -201,13 +213,31 @@ if ($action === 'update') {
         exit;
     }
 
+    $start = new DateTime($date . ' ' . $start_time);
+    $end = new DateTime($end_date . ' ' . $end_time);
+    
+    if ($end < $start && $date === $end_date) {
+        $end->modify('+1 day');
+        $end_date = $end->format('Y-m-d');
+    }
+
     // Convert "17:00" to "17:00:00" for PostgreSQL TIME type
     $start_time_formatted = $start_time . (strlen($start_time) === 5 ? ':00' : '');
+    $end_time_formatted = $end_time . (strlen($end_time) === 5 ? ':00' : '');
+    
+    // SAFETY BACKUP: We also append the end time to the reason string
+    // just in case the SQL migration to add the 'end_time' column wasn't run!
+    $reason_with_backup = $reason . ' | End: ' . substr($end_time_formatted, 0, 5);
     
     $updateData = [
         'date' => $date,
-        'time' => $start_time_formatted, // Store start time in TIME column (PostgreSQL TIME type)
-        'reason' => $reason . ' | End: ' . $end_time, // Store end_time in reason (will be extracted in GET)
+        'end_date' => $end_date,
+        'time' => $start_time_formatted,
+        'end_time' => $end_time_formatted,
+        'reason' => $reason_with_backup,
+        'remarks' => $remarks,
+        'overtime_type' => $overtime_type,
+        'leave_type' => $leave_type,
     ];
 
     // Update row in "ovts" table using service role key to bypass RLS
@@ -215,8 +245,7 @@ if ($action === 'update') {
         'PATCH',
         "rest/v1/ovts?t_id=eq.{$t_id}",
         $updateData,
-        ['Prefer: return=representation'],
-        true // Use service role key to bypass RLS
+        ['Prefer: return=representation']
     );
 
     if ($err) {
@@ -246,8 +275,7 @@ if ($action === 'delete') {
         'DELETE',
         "rest/v1/ovts?t_id=eq.{$t_id}",
         null,
-        [],
-        true // Use service role key to bypass RLS
+        []
     );
 
     if ($err) {

@@ -7,6 +7,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { getBackendUrl } from '../../constants/backend-config';
 import { useTheme } from './ThemeContext';
+import Reanimated, { useAnimatedStyle, useSharedValue, withTiming, Easing, interpolate } from 'react-native-reanimated';
 
 // Native Date Formatter Helpers
 const formatDateStr = (date: Date) => {
@@ -276,6 +277,17 @@ export default function TimesheetScreen() {
     border: { borderColor: colors.border },
   };
 
+  // Entrance animations
+  const fadeAnim = useSharedValue(0);
+  React.useEffect(() => {
+    fadeAnim.value = withTiming(1, { duration: 800, easing: Easing.out(Easing.exp) });
+  }, []);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: fadeAnim.value,
+    transform: [{ translateY: interpolate(fadeAnim.value, [0, 1], [20, 0]) }]
+  }));
+
   return (
     <SafeAreaView style={[styles.container, dyn.bg]} edges={['top', 'left', 'right']}>
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
@@ -297,6 +309,7 @@ export default function TimesheetScreen() {
         <Ionicons name="chevron-down" size={20} color={colors.subText} />
       </View>
 
+      <Reanimated.View style={[animatedStyle, { flex: 1 }]}>
       {/* Calendar Strip (Replaced with Date Picker) */}
       <View style={styles.calendarArea}>
         <View style={styles.monthHeader}>
@@ -304,7 +317,7 @@ export default function TimesheetScreen() {
         </View>
 
         <TouchableOpacity 
-          style={[{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderRadius: 12, borderWidth: 1 }, dyn.border, dyn.card]}
+          style={[{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderRadius: 16, borderWidth: 1 }, dyn.border, dyn.card]}
           onPress={() => setShowMainDatePicker(true)}
         >
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
@@ -364,6 +377,7 @@ export default function TimesheetScreen() {
           ))
         )}
       </ScrollView>
+      </Reanimated.View>
 
       {/* Bottom Actions */}
       <View style={[styles.bottomBar, dyn.border, dyn.bg]}>
@@ -583,13 +597,13 @@ const styles = StyleSheet.create({
   emptyStateTitle: { fontSize: 20, fontWeight: '700', marginBottom: 8 },
   emptyStateSub: { fontSize: 14 },
   activityCard: {
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 16,
+    padding: 24,
+    borderRadius: 28,
+    marginBottom: 20,
     elevation: 2,
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.05,
-    shadowRadius: 8,
+    shadowRadius: 15,
   },
   actHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
   actTimeWrap: { flexDirection: 'row', alignItems: 'center', gap: 6 },
@@ -628,8 +642,8 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   modalContent: {
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
     padding: 24,
     paddingBottom: 40,
     maxHeight: '85%',
@@ -659,14 +673,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 16,
     height: 48,
     paddingHorizontal: 12,
   },
   inputLabel: { fontSize: 13, fontWeight: '600', marginBottom: 8 },
   inputArea: {
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 16,
     padding: 12,
     minHeight: 100,
     marginBottom: 20,
@@ -677,7 +691,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     borderWidth: 1,
-    borderRadius: 12,
+    borderRadius: 16,
     height: 48,
     paddingHorizontal: 12,
     marginBottom: 24,

@@ -19,8 +19,10 @@ import {
 import WheelPicker from 'react-native-wheely';
 import CustomAlert from '../../components/CustomAlert';
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from '../../constants/backend-config';
+import { detectBestNetwork } from '../../constants/network-detector';
 import { useCustomAlert } from '../../hooks/useCustomAlert';
 import { useTheme } from './ThemeContext';
+import Animated, { useAnimatedStyle, useSharedValue, withTiming, Easing, interpolate } from 'react-native-reanimated';
 
 interface UserProfile {
   emp_id: number;
@@ -112,7 +114,6 @@ export default function UserProfile() {
   const loadProfile = async () => {
     try {
       setLoading(true);
-      // Get logged-in user ID from AsyncStorage
       const userId = await AsyncStorage.getItem('userId');
       
       console.log('[Profile] Loading profile for userId:', userId);
@@ -124,120 +125,54 @@ export default function UserProfile() {
         return;
       }
 
-      // Query employees by log_id (foreign key to accounts)
-      const url = `${SUPABASE_URL}/rest/v1/employees?log_id=eq.${userId}&select=*`;
-      console.log('[Profile] Fetching from:', url);
-      
+      // Fetch via PHP backend (avoids direct Supabase call from device)
+      const baseUrl = await detectBestNetwork();
+      const url = `${baseUrl}/get-employee-profile.php?user_id=${userId}`;
+      console.log('[Profile] Fetching from PHP backend:', url);
+
       const response = await fetch(url, {
         method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          apikey: SUPABASE_ANON_KEY,
-          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-        },
+        headers: { 'ngrok-skip-browser-warning': 'true' },
       });
 
       console.log('[Profile] Response status:', response.status);
-      const data = await response.json();
-      console.log('[Profile] Response data:', JSON.stringify(data, null, 2));
+      const result = await response.json();
+      console.log('[Profile] Response data:', JSON.stringify(result, null, 2));
 
-      if (data && data.length > 0) {
-        const employee = data[0];
+      if (result?.ok && result.employee) {
+        const employee = result.employee;
         console.log('[Profile] Found employee:', employee);
-        
-        // Fetch department name if dept_id exists
-        if (employee.dept_id) {
-          console.log('[Profile] Fetching department for dept_id:', employee.dept_id);
-          const deptResponse = await fetch(
-            `${SUPABASE_URL}/rest/v1/departments?dept_id=eq.${employee.dept_id}&select=name`,
-            {
-              method: 'GET',
-              headers: {
-                'Content-Type': 'application/json',
-                apikey: SUPABASE_ANON_KEY,
-                Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-              },
+
+        // Handle profile picture if returned
+        if (employee.profile_picture) {
+          const picData = employee.profile_picture;
+          if (typeof picData === 'string') {
+            if (picData.startsWith('data:image')) {
+              setProfilePicture(picData);
+            } else if (!picData.startsWith('\\x')) {
+              setProfilePicture(`data:image/jpeg;base64,${picData}`);
             }
-          );
-          const deptData = await deptResponse.json();
-          console.log('[Profile] Department data:', deptData);
-          if (deptData && deptData.length > 0) {
-            employee.department_name = deptData[0].name;
           }
         }
-        
-        // Fetch face image from accounts table
-        console.log('[Profile] Fetching face image for log_id:', userId);
-        try {
-          const faceResponse = await fetch(
-            `${SUPABASE_URL}/rest/v1/accounts?log_id=eq.${userId}&select=face`,
-            {
-              method: 'GET',
-              headers: {
-                'Content-Type': 'application/json',
-                apikey: SUPABASE_ANON_KEY,
-                Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-              },
-            }
-          );
-          const faceData = await faceResponse.json();
-          console.log('[Profile] Face data response:', faceData);
-          
-          if (faceData && faceData.length > 0 && faceData[0].face) {
-            let faceBase64 = faceData[0].face;
-            
-            // Normalize face data format (handle different formats from database)
-            // Handle PostgreSQL bytea escape format: \x2f396a2f34...
-            if (faceBase64.startsWith('\\x')) {
-              const hexString = faceBase64.substring(2);
-              // Convert hex to base64 in React Native
-              try {
-                const bytes = [];
-                for (let i = 0; i < hexString.length; i += 2) {
-                  bytes.push(parseInt(hexString.substr(i, 2), 16));
-                }
-                // Convert bytes to binary string in chunks to avoid stack overflow
-                let binaryString = '';
-                const chunkSize = 8192; // Process 8KB at a time
-                for (let i = 0; i < bytes.length; i += chunkSize) {
-                  const chunk = bytes.slice(i, i + chunkSize);
-                  binaryString += String.fromCharCode.apply(null, chunk);
-                }
-                faceBase64 = btoa(binaryString);
-              } catch (e) {
-                console.error('[Profile] Error converting hex to base64:', e);
-                setFaceImageUri(null);
-                return;
-              }
-            }
-            // Handle data URI format: data:image/jpeg;base64,/9j/4AAQ...
-            else if (faceBase64.startsWith('data:image')) {
-              const commaPos = faceBase64.indexOf(',');
-              if (commaPos !== -1) {
-                faceBase64 = faceBase64.substring(commaPos + 1);
-              }
-            }
-            // Pure base64 - use as is
-            
-            // Create data URI for Image component
-            const faceUri = `data:image/jpeg;base64,${faceBase64}`;
-            setFaceImageUri(faceUri);
-            console.log('[Profile] Face image loaded successfully');
-          } else {
-            console.log('[Profile] No face image found in database');
+
+        // Handle face image if present
+        if (employee.face) {
+          let faceBase64 = employee.face;
+          if (faceBase64.startsWith('\\x')) {
+            // skip hex format
             setFaceImageUri(null);
+          } else if (faceBase64.startsWith('data:image')) {
+            setFaceImageUri(faceBase64);
+          } else {
+            setFaceImageUri(`data:image/jpeg;base64,${faceBase64}`);
           }
-        } catch (faceError) {
-          console.error('[Profile] Error fetching face image:', faceError);
-          setFaceImageUri(null);
         }
-        
+
         console.log('[Profile] Setting profile state:', employee);
         setProfile(employee);
         setEditedProfile(employee);
       } else {
         console.log('[Profile] No employee found for log_id:', userId);
-        // Offer to create employee record
         showAlert({
           type: 'warning',
           title: 'No Profile Found',
@@ -267,43 +202,29 @@ export default function UserProfile() {
 
       console.log('[Profile Picture] Fetching for userId:', userId);
 
-      // Fetch profile picture from accounts table (profile_picture column only)
+      // Route through PHP backend to avoid direct Supabase call from device
+      const baseUrl = await detectBestNetwork();
       const response = await fetch(
-        `${SUPABASE_URL}/rest/v1/accounts?log_id=eq.${userId}&select=profile_picture`,
-        {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            apikey: SUPABASE_ANON_KEY,
-            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-          },
-        }
+        `${baseUrl}/get-employee-profile.php?user_id=${userId}`,
+        { headers: { 'ngrok-skip-browser-warning': 'true' } }
       );
 
-      const data = await response.json();
+      const result = await response.json();
       console.log('[Profile Picture] Response status:', response.status);
-      console.log('[Profile Picture] Data received:', !!data);
-      console.log('[Profile Picture] Data length:', data?.length);
-      console.log('[Profile Picture] Has face:', !!data?.[0]?.face);
-      
-      if (data && data.length > 0 && data[0].profile_picture) {
-        const picData = data[0].profile_picture;
-        console.log('[Profile Picture] Data type:', typeof picData);
-        console.log('[Profile Picture] First 50 chars:', picData.substring?.(0, 50) || 'not a string');
-        
-        if (typeof picData === 'string') {
-          if (picData.startsWith('data:image')) {
-            setProfilePicture(picData);
-            console.log('[Profile Picture] ✓ Set as data URI');
-          } else if (picData.startsWith('/9j') || picData.startsWith('iVBOR') || picData.startsWith('R0lG')) {
-            setProfilePicture(`data:image/jpeg;base64,${picData}`);
-            console.log('[Profile Picture] ✓ Set as base64 with prefix');
-          } else if (!picData.startsWith('\\x')) {
-            setProfilePicture(`data:image/jpeg;base64,${picData}`);
-            console.log('[Profile Picture] ✓ Set as base64 (fallback)');
-          } else {
-            console.warn('[Profile Picture] ⚠ PostgreSQL hex format — cannot display');
-          }
+
+      const picData = result?.employee?.profile_picture;
+      if (picData && typeof picData === 'string') {
+        if (picData.startsWith('data:image')) {
+          setProfilePicture(picData);
+          console.log('[Profile Picture] ✓ Set as data URI');
+        } else if (picData.startsWith('/9j') || picData.startsWith('iVBOR') || picData.startsWith('R0lG')) {
+          setProfilePicture(`data:image/jpeg;base64,${picData}`);
+          console.log('[Profile Picture] ✓ Set as base64 with prefix');
+        } else if (!picData.startsWith('\\x')) {
+          setProfilePicture(`data:image/jpeg;base64,${picData}`);
+          console.log('[Profile Picture] ✓ Set as base64 (fallback)');
+        } else {
+          console.warn('[Profile Picture] ⚠ PostgreSQL hex format — cannot display');
         }
       } else {
         console.log('[Profile Picture] No profile_picture found in database');
@@ -555,6 +476,17 @@ export default function UserProfile() {
     },
   };
 
+  // Entrance animations
+  const fadeAnim = useSharedValue(0);
+  React.useEffect(() => {
+    fadeAnim.value = withTiming(1, { duration: 800, easing: Easing.out(Easing.exp) });
+  }, []);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: fadeAnim.value,
+    transform: [{ translateY: interpolate(fadeAnim.value, [0, 1], [20, 0]) }]
+  }));
+
   if (loading && !profile.emp_id) {
     return (
       <SafeAreaView style={[styles.container, dyn.bg]}>
@@ -596,6 +528,7 @@ export default function UserProfile() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
+        <Animated.View style={animatedStyle}>
       {/* PROFILE PICTURE SECTION */}
         <View style={styles.profilePictureContainer}>
           <View style={styles.profilePicture}>
@@ -1009,6 +942,7 @@ export default function UserProfile() {
           Use this if your QR code stopped working after a username change.
         </Text>
 
+      </Animated.View>
       </ScrollView>
 
       <CustomAlert
@@ -1100,14 +1034,14 @@ const styles = StyleSheet.create({
     borderColor: '#FFF',
   },
   card: {
-    borderRadius: 12,
-    padding: 20,
-    marginBottom: 16,
+    borderRadius: 28,
+    padding: 24,
+    marginBottom: 20,
     elevation: 2,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 15,
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -1210,7 +1144,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 16,
-    borderRadius: 12,
+    borderRadius: 20,
     gap: 8,
     marginTop: 8,
   },

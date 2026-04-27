@@ -1,17 +1,20 @@
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Modal, Platform, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 // @ts-ignore - DateTimePicker types may not be available
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import * as DocumentPicker from 'expo-document-picker';
 import { GestureHandlerRootView, Swipeable } from 'react-native-gesture-handler';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import CustomAlert from '../../components/CustomAlert';
-import { useCustomAlert } from '../../hooks/useCustomAlert';
-import { getBackendUrl, SUPABASE_URL, SUPABASE_ANON_KEY } from '../../constants/backend-config';
+import UserAvatar from '../../components/UserAvatar';
+import { getBackendUrl, SUPABASE_ANON_KEY, SUPABASE_URL } from '../../constants/backend-config';
 import { recheckNetwork } from '../../constants/network-detector';
+import { useCustomAlert } from '../../hooks/useCustomAlert';
 import { useTheme } from './ThemeContext';
+import Reanimated, { useAnimatedStyle, useSharedValue, withTiming, Easing, interpolate } from 'react-native-reanimated';
 
 export default function UserLeave() {
   const router = useRouter();
@@ -23,6 +26,10 @@ export default function UserLeave() {
   const [reason, setReason] = useState('');
   const [username, setUsername] = useState<string | null>(null);
   const [empId, setEmpId] = useState<number | null>(null);
+  const [empName, setEmpName] = useState<string>('');
+  const [empDept, setEmpDept] = useState<string>('');
+  const [userId, setUserId] = useState<string | null>(null);
+  const [profilePicture, setProfilePicture] = useState<string | null>(null);
   const [history, setHistory] = useState<any[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
@@ -38,7 +45,14 @@ export default function UserLeave() {
   const [editingLeave, setEditingLeave] = useState<any | null>(null);
   const swipeableRefs = useRef<{ [key: number]: Swipeable | null }>({});
   
-  const leaveTypes = ['Sick Leave', 'Vacation', 'Emergency'];
+  // New states for missing features
+  const [isFullDay, setIsFullDay] = useState(true);
+  const [attachments, setAttachments] = useState<any[]>([]);
+  const [leaveBalance, setLeaveBalance] = useState<any[]>([]);
+  const [loadingBalance, setLoadingBalance] = useState(false);
+  const [isDraft, setIsDraft] = useState(false);
+  
+  const leaveTypes = ['Sick Leave', 'Vacation', 'Emergency', 'Annual Leave', 'Marriage of Employee'];
   
   const formatDate = (date: Date | null): string => {
     if (!date) return 'Select date';
@@ -59,6 +73,17 @@ export default function UserLeave() {
     chip: { backgroundColor: isDark ? '#333' : '#E0E0E0' }
   };
 
+  // Entrance animations
+  const fadeAnim = useSharedValue(0);
+  React.useEffect(() => {
+    fadeAnim.value = withTiming(1, { duration: 800, easing: Easing.out(Easing.exp) });
+  }, []);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: fadeAnim.value,
+    transform: [{ translateY: interpolate(fadeAnim.value, [0, 1], [20, 0]) }]
+  }));
+
   // Load stored username and emp_id from login
   useEffect(() => {
     const loadStoredData = async () => {
@@ -66,6 +91,10 @@ export default function UserLeave() {
         const stored = await AsyncStorage.getItem('username');
         if (stored) {
           setUsername(stored);
+        }
+        const storedUserId = await AsyncStorage.getItem('userId');
+        if (storedUserId) {
+          setUserId(storedUserId);
         }
         const storedEmpId = await AsyncStorage.getItem('emp_id');
         if (storedEmpId) {
@@ -84,6 +113,175 @@ export default function UserLeave() {
   useEffect(() => {
     recheckNetwork().catch(() => {});
   }, []);
+
+  // Load employee profile data and leave balance
+  useEffect(() => {
+    if (userId || empId) {
+      loadEmployeeProfile();
+      loadLeaveBalance();
+      loadDraftForm();
+    }
+  }, [userId, empId]);
+
+  // Load employee profile (name, department, avatar)
+  const loadEmployeeProfile = async () => {
+    try {
+      const logId = userId;
+      if (!logId) return;
+
+      const url = `${SUPABASE_URL}/rest/v1/employees?log_id=eq.${logId}&select=name,dept_id`;
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        },
+      });
+
+      const data = await response.json();
+      if (data && data.length > 0) {
+        setEmpName(data[0].name || '');
+        
+        // Fetch department name if dept_id exists
+        if (data[0].dept_id) {
+          const deptRes = await fetch(
+            `${SUPABASE_URL}/rest/v1/departments?dept_id=eq.${data[0].dept_id}&select=name`,
+            {
+              method: 'GET',
+              headers: {
+                'Content-Type': 'application/json',
+                apikey: SUPABASE_ANON_KEY,
+                Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+              },
+            }
+          );
+          const deptData = await deptRes.json();
+          if (deptData && deptData.length > 0) {
+            setEmpDept(deptData[0].name || '');
+          }
+        }
+      }
+
+      // Load profile picture
+      const accUrl = `${SUPABASE_URL}/rest/v1/accounts?log_id=eq.${logId}&select=profile_picture`;
+      const accRes = await fetch(accUrl, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        },
+      });
+      const accData = await accRes.json();
+      if (accData && accData.length > 0 && accData[0].profile_picture) {
+        setProfilePicture(accData[0].profile_picture);
+      }
+    } catch (error) {
+      console.error('Error loading employee profile:', error);
+    }
+  };
+
+  // Load leave balance for employee
+  const loadLeaveBalance = async () => {
+    try {
+      const empIdToUse = empId;
+      if (!empIdToUse) return;
+
+      setLoadingBalance(true);
+
+      // Fetch leave balance from backend
+      const url = `${getBackendUrl()}/get-leave-balance.php?emp_id=${empIdToUse}`;
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.ok && data.data) {
+          setLeaveBalance(Array.isArray(data.data) ? data.data : []);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading leave balance:', error);
+    } finally {
+      setLoadingBalance(false);
+    }
+  };
+
+  // Save draft form to AsyncStorage
+  const saveDraft = async () => {
+    try {
+      const draft = {
+        leaveType,
+        reason,
+        startDate: startDate?.toISOString() || null,
+        endDate: endDate?.toISOString() || null,
+        isFullDay,
+        attachments: attachments.map(a => ({ name: a.name })),
+      };
+      await AsyncStorage.setItem('leaveDraft', JSON.stringify(draft));
+      showAlert({ type: 'success', title: 'Saved', message: 'Your leave request has been saved as draft.' });
+    } catch (error) {
+      showAlert({ type: 'error', title: 'Error', message: 'Failed to save draft.' });
+    }
+  };
+
+  // Load draft form from AsyncStorage
+  const loadDraftForm = async () => {
+    try {
+      const draftData = await AsyncStorage.getItem('leaveDraft');
+      if (draftData) {
+        const draft = JSON.parse(draftData);
+        setLeaveType(draft.leaveType || 'Sick Leave');
+        setReason(draft.reason || '');
+        if (draft.startDate) setStartDate(new Date(draft.startDate));
+        if (draft.endDate) setEndDate(new Date(draft.endDate));
+        setIsFullDay(draft.isFullDay !== false);
+      }
+    } catch (error) {
+      // Silently fail
+    }
+  };
+
+  // Clear draft
+  const clearDraft = async () => {
+    try {
+      await AsyncStorage.removeItem('leaveDraft');
+    } catch (error) {
+      // Silently fail
+    }
+  };
+
+  // Pick and add attachment
+  const pickAttachment = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['application/pdf', 'image/*', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+      });
+
+      if (result.canceled === false && result.assets && result.assets.length > 0) {
+        const file = result.assets[0];
+        setAttachments([...attachments, {
+          name: file.name,
+          size: file.size,
+          mimeType: file.mimeType,
+          uri: file.uri,
+        }]);
+      }
+    } catch (error) {
+      showAlert({ type: 'error', title: 'Error', message: 'Failed to pick file.' });
+    }
+  };
+
+  // Remove attachment
+  const removeAttachment = (index: number) => {
+    setAttachments(attachments.filter((_, i) => i !== index));
+  };
 
   // Helper to ensure we have emp_id for the logged-in user
   const ensureEmpId = async (): Promise<number | null> => {
@@ -275,7 +473,7 @@ export default function UserLeave() {
     }
   };
 
-  const submitLeave = async () => {
+  const submitLeave = async (asDraft: boolean = false) => {
     if (!reason.trim()) {
       showAlert({ type: 'error', title: 'Missing information', message: 'Please enter a reason for your leave.' });
       return;
@@ -293,6 +491,12 @@ export default function UserLeave() {
 
     if (endDate < startDate) {
       showAlert({ type: 'error', title: 'Invalid dates', message: 'End date cannot be before start date.' });
+      return;
+    }
+
+    if (asDraft) {
+      // Save as draft
+      await saveDraft();
       return;
     }
 
@@ -327,6 +531,8 @@ export default function UserLeave() {
           reason: reason.trim(),
           start_date: formattedStartDate,
           end_date: formattedEndDate,
+          is_full_day: isFullDay,
+          has_attachment: attachments.length > 0,
         }),
       });
 
@@ -340,8 +546,38 @@ export default function UserLeave() {
         throw new Error(result.message || 'Failed to submit leave request.');
       }
       
+      let leaveId = null;
       if (result.data && result.data.length > 0) {
-        // Dates saved successfully
+        leaveId = result.data[0].leave_id;
+      }
+
+      // Upload attachments if there are any and we got a leave_id
+      if (attachments.length > 0 && leaveId) {
+        for (const attachment of attachments) {
+          try {
+            const formData = new FormData();
+            formData.append('leave_id', String(leaveId));
+            formData.append('file', {
+              uri: attachment.uri,
+              name: attachment.name,
+              type: attachment.mimeType,
+            } as any);
+
+            const uploadRes = await fetch(`${getBackendUrl()}/leave-attachments.php`, {
+              method: 'POST',
+              headers: {
+                'ngrok-skip-browser-warning': 'true',
+              },
+              body: formData,
+            });
+
+            if (!uploadRes.ok) {
+              console.warn(`Failed to upload attachment: ${attachment.name}`);
+            }
+          } catch (uploadErr) {
+            console.warn(`Error uploading attachment ${attachment.name}:`, uploadErr);
+          }
+        }
       }
 
       showAlert({ type: 'success', title: 'Success', message: editingLeave ? 'Request Updated' : 'Request Sent' });
@@ -350,6 +586,9 @@ export default function UserLeave() {
       setEndDate(null);
       setEditingLeave(null);
       setLeaveType('Sick Leave');
+      setAttachments([]);
+      setIsFullDay(true);
+      await clearDraft();
 
       // Switch to history tab and refresh
       setActiveTab('history');
@@ -563,9 +802,56 @@ export default function UserLeave() {
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
-        
+        <Reanimated.View style={animatedStyle}>
         {activeTab === 'apply' ? (
             <View>
+                {/* REQUESTED FOR SECTION */}
+                <View style={[styles.card, dyn.card]}>
+                  <Text style={[styles.sectionLabel, dyn.sub]}>REQUESTED FOR</Text>
+                  <View style={styles.requestedForContainer}>
+                    <UserAvatar
+                      userId={userId}
+                      displayName={empName}
+                      size={60}
+                    />
+                    <View style={styles.empInfoContainer}>
+                      <Text style={[styles.empName, dyn.text]}>{empName || 'Loading...'}</Text>
+                      <Text style={[styles.empDept, dyn.sub]}>{empDept || 'Department'}</Text>
+                    </View>
+                  </View>
+                </View>
+
+                {/* LEAVE BALANCE / VALIDITY SECTION */}
+                {leaveBalance.length > 0 && (
+                  <View style={[styles.card, dyn.card]}>
+                    <Text style={[styles.sectionLabel, dyn.sub]}>LEAVE BALANCE</Text>
+                    {leaveBalance.map((item: any, idx: number) => (
+                      <View key={idx} style={styles.balanceItem}>
+                        <View style={styles.balanceInfo}>
+                          <Text style={[styles.balanceType, dyn.text]}>{item.leave_type}</Text>
+                          <View style={styles.balanceBar}>
+                            <View
+                              style={[
+                                styles.balanceBarFill,
+                                {
+                                  width: `${Math.min(
+                                    (((item.total || 0) - (item.used || 0)) / (item.total || 1)) * 100,
+                                    100
+                                  )}%`,
+                                  backgroundColor: item.leave_type === 'Annual Leave' ? '#F27121' : '#3498DB',
+                                },
+                              ]}
+                            />
+                          </View>
+                        </View>
+                        <Text style={[styles.balanceRemaining, dyn.text]}>
+                          {(item.total || 0) - (item.used || 0)} / {item.total || 0}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+
                 <Text style={[styles.sectionLabel, dyn.sub]}>LEAVE DETAILS</Text>
                 
                 <View style={styles.inputGroup}>
@@ -688,6 +974,37 @@ export default function UserLeave() {
                     </View>
                 </View>
 
+                {/* FULL DAY / HALF DAY TOGGLE */}
+                <View style={styles.inputGroup}>
+                  <Text style={[styles.label, dyn.sub]}>Leave Duration</Text>
+                  <View style={styles.dayToggleContainer}>
+                    <TouchableOpacity
+                      style={[
+                        styles.dayToggleButton,
+                        isFullDay && [styles.dayToggleButtonActive, { backgroundColor: '#F27121' }],
+                      ]}
+                      onPress={() => setIsFullDay(true)}
+                    >
+                      <Ionicons name="calendar" size={20} color={isFullDay ? '#FFF' : colors.subText} />
+                      <Text style={[styles.dayToggleText, isFullDay && { color: '#FFF', fontWeight: 'bold' }]}>
+                        Full Day
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.dayToggleButton,
+                        !isFullDay && [styles.dayToggleButtonActive, { backgroundColor: '#F27121' }],
+                      ]}
+                      onPress={() => setIsFullDay(false)}
+                    >
+                      <Ionicons name="time" size={20} color={!isFullDay ? '#FFF' : colors.subText} />
+                      <Text style={[styles.dayToggleText, !isFullDay && { color: '#FFF', fontWeight: 'bold' }]}>
+                        Half Day
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
                 <View style={styles.inputGroup}>
                     <Text style={[styles.label, dyn.sub]}>Reason for Leave</Text>
                     <TextInput 
@@ -698,6 +1015,45 @@ export default function UserLeave() {
                         value={reason}
                         onChangeText={setReason}
                     />
+                </View>
+
+                {/* ATTACHMENT SECTION */}
+                <View style={styles.inputGroup}>
+                  <Text style={[styles.label, dyn.sub]}>Attachments</Text>
+                  <TouchableOpacity 
+                    style={[styles.attachmentButton, dyn.input]}
+                    onPress={pickAttachment}
+                  >
+                    <MaterialCommunityIcons name="upload" size={20} color="#F27121" />
+                    <Text style={[styles.attachmentButtonText, { color: '#F27121' }]}>
+                      {attachments.length === 0 ? 'UPLOAD FILES' : `${attachments.length} FILE(S)`}
+                    </Text>
+                  </TouchableOpacity>
+                  {attachments.length > 0 && (
+                    <View style={styles.attachmentsList}>
+                      {attachments.map((file, index) => (
+                        <View key={index} style={[styles.attachmentItem, dyn.card]}>
+                          <View style={styles.attachmentItemContent}>
+                            <MaterialCommunityIcons name="file-document" size={20} color="#F27121" />
+                            <View style={styles.attachmentItemInfo}>
+                              <Text style={[styles.attachmentItemName, dyn.text]} numberOfLines={1}>
+                                {file.name}
+                              </Text>
+                              <Text style={[styles.attachmentItemSize, dyn.sub]}>
+                                {(file.size / 1024).toFixed(1)} KB
+                              </Text>
+                            </View>
+                          </View>
+                          <TouchableOpacity 
+                            onPress={() => removeAttachment(index)}
+                            style={styles.attachmentItemRemove}
+                          >
+                            <Ionicons name="close-circle" size={20} color="#E74C3C" />
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+                    </View>
+                  )}
                 </View>
 
                 {editingLeave && (
@@ -714,20 +1070,40 @@ export default function UserLeave() {
                         <Text style={[styles.cancelText, dyn.text]}>Cancel Edit</Text>
                     </TouchableOpacity>
                 )}
-                <TouchableOpacity style={styles.submitButton} onPress={submitLeave} disabled={submitting}>
+
+                {/* DRAFT AND SUBMIT BUTTONS */}
+                <View style={styles.buttonRow}>
+                  <TouchableOpacity 
+                    style={[styles.draftButton, { borderColor: colors.border }]} 
+                    onPress={() => submitLeave(true)}
+                    disabled={submitting}
+                  >
+                    <Ionicons name="save-outline" size={20} color="#F27121" />
+                    <Text style={styles.draftButtonText}>SAVE AS DRAFT</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={[styles.submitButton, submitting && { opacity: 0.6 }]} 
+                    onPress={() => submitLeave(false)} 
+                    disabled={submitting}
+                  >
                     <Text style={styles.submitText}>
                         {submitting 
                             ? (editingLeave ? 'UPDATING...' : 'SUBMITTING...') 
-                            : (editingLeave ? 'UPDATE REQUEST' : 'SUBMIT APPLICATION')
+                            : (editingLeave ? 'UPDATE REQUEST' : 'SUBMIT')
                         }
                     </Text>
                     <Ionicons name={editingLeave ? "checkmark-circle-outline" : "paper-plane-outline"} size={20} color="#FFF" style={{marginLeft: 10}} />
-                </TouchableOpacity>
+                  </TouchableOpacity>
+                </View>
             </View>
         ) : (
             <View>
                 <Text style={[styles.sectionLabel, dyn.sub]}>RECENT REQUESTS</Text>
-                {history.map((item, i) => {
+                {loadingHistory ? (
+                    <View style={styles.loadingContainer}>
+                        <Text style={[styles.historyDate, dyn.sub]}>Loading your leave history...</Text>
+                    </View>
+                ) : history.map((item, i) => {
                     const status = item.status || 'Pending';
                     const color =
                         status === 'Approved' ? '#27AE60' :
@@ -834,6 +1210,7 @@ export default function UserLeave() {
             </View>
         )}
 
+        </Reanimated.View>
       </ScrollView>
 
       {/* Start Date Picker Modal */}
@@ -1023,6 +1400,7 @@ const styles = StyleSheet.create({
   activeTabText: { color: '#F27121' },
   content: { padding: 20 },
   sectionLabel: { marginBottom: 20, fontSize: 12, letterSpacing: 1, fontWeight: 'bold' },
+  card: { borderRadius: 28, padding: 24, marginBottom: 20, elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 15 },
   inputGroup: { marginBottom: 25 },
   label: { marginBottom: 10, fontSize: 14 },
   fakeDropdown: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 15, borderRadius: 10, borderWidth: 1 },
@@ -1033,15 +1411,15 @@ const styles = StyleSheet.create({
   activeChip: { backgroundColor: '#F27121' },
   chipText: { fontSize: 12 },
   activeChipText: { color: '#FFF', fontWeight: 'bold' },
-  submitButton: { backgroundColor: '#F27121', flexDirection: 'row', justifyContent: 'center', alignItems: 'center', padding: 18, borderRadius: 12, marginTop: 10 },
-  submitText: { color: '#FFF', fontWeight: 'bold', fontSize: 16, letterSpacing: 1 },
-  historyCard: { borderRadius: 10, marginBottom: 15, overflow: 'hidden', flexDirection: 'row', elevation: 2 },
-  statusLine: { width: 6, height: '100%' },
+  submitButton: { backgroundColor: '#F27121', flexDirection: 'row', justifyContent: 'center', alignItems: 'center', padding: 18, borderRadius: 20, flex: 1, gap: 8 },
+  submitText: { color: '#FFF', fontWeight: '800', fontSize: 15, letterSpacing: 0.5 },
+  historyCard: { borderRadius: 28, marginBottom: 16, overflow: 'hidden', flexDirection: 'row', elevation: 3, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 15, shadowOffset: { width: 0, height: 4 } },
+  statusLine: { width: 5, height: '100%' },
   historyContent: { flex: 1, padding: 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  historyType: { fontSize: 16, fontWeight: 'bold', marginBottom: 5 },
-  historyDate: { fontSize: 12 },
-  badge: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 5 },
-  badgeText: { fontSize: 10, fontWeight: 'bold', textTransform: 'uppercase' },
+  historyType: { fontSize: 16, fontWeight: '700', marginBottom: 5 },
+  historyDate: { fontSize: 13, opacity: 0.6 },
+  badge: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
+  badgeText: { fontSize: 11, fontWeight: '800', textTransform: 'uppercase' },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
@@ -1050,14 +1428,13 @@ const styles = StyleSheet.create({
   },
   dropdownMenu: {
     minWidth: 200,
-    borderRadius: 10,
-    borderWidth: 1,
+    borderRadius: 20,
     overflow: 'hidden',
-    elevation: 5,
+    elevation: 8,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 20,
   },
   dropdownItem: {
     flexDirection: 'row',
@@ -1118,9 +1495,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   cancelButton: {
-    borderWidth: 1,
-    padding: 15,
-    borderRadius: 12,
+    borderWidth: 1.5,
+    padding: 18,
+    borderRadius: 20,
     marginTop: 10,
     alignItems: 'center',
   },
@@ -1153,5 +1530,148 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: 'bold',
     marginTop: 4,
+  },
+  // New styles for missing features
+  requestedForContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 15,
+  },
+  empInfoContainer: {
+    flex: 1,
+  },
+  empName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  empDept: {
+    fontSize: 13,
+  },
+  dayToggleContainer: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  dayToggleButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    backgroundColor: 'transparent',
+    gap: 8,
+  },
+  dayToggleButtonActive: {
+    borderColor: '#F27121',
+  },
+  dayToggleText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  balanceItem: {
+    marginBottom: 16,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.1)',
+  },
+  balanceInfo: {
+    marginBottom: 8,
+  },
+  balanceType: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginBottom: 8,
+  },
+  balanceBar: {
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#E0E0E0',
+    overflow: 'hidden',
+  },
+  balanceBarFill: {
+    height: '100%',
+    borderRadius: 4,
+  },
+  balanceRemaining: {
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'right',
+  },
+  attachmentButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 15,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    gap: 8,
+  },
+  attachmentButtonText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    letterSpacing: 0.5,
+  },
+  attachmentsList: {
+    marginTop: 12,
+    gap: 10,
+  },
+  attachmentItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.1)',
+  },
+  attachmentItemContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+  },
+  attachmentItemInfo: {
+    flex: 1,
+  },
+  attachmentItemName: {
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  attachmentItemSize: {
+    fontSize: 11,
+  },
+  attachmentItemRemove: {
+    padding: 8,
+  },
+  loadingContainer: {
+    paddingVertical: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 10,
+  },
+  draftButton: {
+    borderWidth: 1.5,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 15,
+    borderRadius: 12,
+    gap: 8,
+    flex: 1,
+  },
+  draftButtonText: {
+    color: '#F27121',
+    fontWeight: 'bold',
+    fontSize: 14,
+    letterSpacing: 0.5,
   },
 });

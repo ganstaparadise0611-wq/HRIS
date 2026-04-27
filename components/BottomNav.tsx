@@ -32,55 +32,79 @@ export function BottomNav() {
   };
 
   return (
-    <SafeAreaView
-      edges={['bottom']}
-      style={[
-        styles.safeArea,
-        { backgroundColor: colors.card, borderTopColor: colors.border },
-      ]}
-    >
-      <View style={styles.container}>
+    <View style={styles.floatingWrapper}>
+      <View style={[
+        styles.container, 
+        { 
+          backgroundColor: isDark ? 'rgba(30, 30, 30, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+          shadowColor: '#000',
+        }
+      ]}>
         {NAV_ITEMS.map((item) => {
           const active = pathname.startsWith(item.route);
-          const tint = active ? '#F27121' : colors.subText;
+          const tint = active ? '#F27121' : (isDark ? '#888' : '#A0A0A0');
           return (
             <TouchableOpacity
               key={item.label}
               style={styles.item}
               onPress={() => handlePress(item.route)}
+              activeOpacity={0.7}
             >
-              <Ionicons name={item.icon} size={22} color={tint} />
-              <Text
-                style={[
-                  styles.label,
-                  { color: tint, fontWeight: active ? '600' : '400' },
-                ]}
-              >
-                {item.label}
-              </Text>
+              <View style={[styles.iconWrapper, active && styles.activeIconWrapper]}>
+                <Ionicons name={active ? item.icon.replace('-outline', '') as any : item.icon} size={24} color={tint} />
+              </View>
+              {active && <View style={styles.activeDot} />}
             </TouchableOpacity>
           );
         })}
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    borderTopWidth: 1,
+  floatingWrapper: {
+    position: 'absolute',
+    bottom: 25,
+    left: 20,
+    right: 20,
+    alignItems: 'center',
+    zIndex: 1000,
   },
   container: {
     flexDirection: 'row',
     justifyContent: 'space-around',
     alignItems: 'center',
-    height: 56,
+    height: 70,
+    width: '100%',
+    borderRadius: 35,
+    paddingHorizontal: 10,
+    elevation: 15,
+    shadowOpacity: 0.15,
+    shadowRadius: 15,
+    shadowOffset: { width: 0, height: 8 },
   },
   item: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 4,
+    height: '100%',
+  },
+  iconWrapper: {
+    padding: 8,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  activeIconWrapper: {
+    backgroundColor: 'rgba(242, 113, 33, 0.1)',
+  },
+  activeDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#F27121',
+    marginTop: 2,
   },
   label: {
     fontSize: 10,
@@ -89,4 +113,5 @@ const styles = StyleSheet.create({
 });
 
 export default BottomNav;
+
 

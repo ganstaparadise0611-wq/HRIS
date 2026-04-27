@@ -15,21 +15,12 @@ function RootLayoutContent() {
   const pathname = usePathname();
   const { colors, theme, sidebarVisible, setSidebarVisible } = useTheme();
   
-  // Expo Router may return '/userlogin' or '/(tabs)/userlogin' depending on config.
-  // Signup UI is inside the same screen, so hiding on userlogin covers both.
-  // Also hide bottom nav for password reset flow
-  const hideBottomNav = pathname === '/userlogin' || 
-                        pathname === '/(tabs)/userlogin' || 
-                        pathname.endsWith('/userlogin') ||
-                        pathname === '/forgotpassword' ||
-                        pathname === '/(tabs)/forgotpassword' ||
-                        pathname.endsWith('/forgotpassword') ||
-                        pathname === '/verifycode' ||
-                        pathname === '/(tabs)/verifycode' ||
-                        pathname.endsWith('/verifycode') ||
-                        pathname === '/resetpassword' ||
-                        pathname === '/(tabs)/resetpassword' ||
-                        pathname.endsWith('/resetpassword');
+  // Whitelist: only show BottomNav on the 5 main tab screens
+  const BOTTOM_NAV_ROUTES = ['/feeds', '/features', '/userdashboard', '/company', '/request'];
+  const showBottomNav = BOTTOM_NAV_ROUTES.some(
+    (route) => pathname === route || pathname === `/(tabs)${route}` || pathname.endsWith(route)
+  );
+  const hideBottomNav = !showBottomNav;
 
   // Slide animation for entire app interface
   const progress = useSharedValue(0);

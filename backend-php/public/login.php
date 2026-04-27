@@ -161,6 +161,9 @@ $response = [
     'password_storage' => $isHash ? 'hashed' : 'plaintext',
 ];
 
+// Update online status in the background before returning
+supabase_request('PATCH', "rest/v1/accounts?log_id=eq." . urlencode($account['log_id']), ['is_online' => true]);
+
 // #region agent log
 $logPath = __DIR__ . '/../../../.cursor/debug.log';
 file_put_contents($logPath, json_encode(['id'=>'log_'.time().'_e','timestamp'=>time()*1000,'location'=>'login.php:95','message'=>'Response built','data'=>['response_keys'=>array_keys($response),'user_keys'=>array_keys($response['user']),'log_id_in_response'=>$response['user']['log_id']??null],'runId'=>'run1','hypothesisId'=>'E'])."\n", FILE_APPEND);

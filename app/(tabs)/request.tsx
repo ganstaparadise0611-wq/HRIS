@@ -54,31 +54,34 @@ export default function RequestScreen() {
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
 
       <View style={styles.header}>
-        <Text style={[styles.headerTitle, dyn.text]}>Request</Text>
+        <Text style={[styles.headerTitle, dyn.text]}>Requests</Text>
         <Text style={[styles.headerSubtitle, dyn.sub]}>
-          Central place for all HR and attendance-related requests.
+          Submit and track your HR requests.
         </Text>
       </View>
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        {requestTiles.map((item) => (
+        {requestTiles.map((item, index) => (
           <TouchableOpacity
             key={item.label}
-            style={[styles.tile, dyn.card, dyn.border]}
+            style={[styles.tile, dyn.card]}
             onPress={() => router.push(item.route as any)}
+            activeOpacity={0.75}
           >
             <View style={styles.tileIconCircle}>
               <item.lib
                 name={item.icon as any}
-                size={22}
-                color={isDark ? '#FFF' : '#333'}
+                size={24}
+                color="#F27121"
               />
             </View>
             <View style={styles.tileText}>
               <Text style={[styles.tileLabel, dyn.text]}>{item.label}</Text>
               <Text style={[styles.tileDescription, dyn.sub]}>{item.description}</Text>
             </View>
-            <Ionicons name="chevron-forward" size={18} color={colors.subText} />
+            <View style={styles.chevronWrapper}>
+              <Ionicons name="chevron-forward" size={18} color="#F27121" />
+            </View>
           </TouchableOpacity>
         ))}
       </ScrollView>
@@ -89,44 +92,59 @@ export default function RequestScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   header: {
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
+    paddingHorizontal: 24,
+    paddingTop: 20,
+    paddingBottom: 16,
   },
-  headerTitle: { fontSize: 20, fontWeight: 'bold' },
-  headerSubtitle: { marginTop: 4, fontSize: 13 },
+  headerTitle: { fontSize: 28, fontWeight: '800', letterSpacing: -0.8 },
+  headerSubtitle: { marginTop: 4, fontSize: 15, opacity: 0.55 },
   content: {
-    padding: 20,
-    paddingBottom: 40,
+    padding: 24,
+    paddingBottom: 120,
   },
   tile: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 12,
-    borderWidth: 1,
+    borderRadius: 28,
+    padding: 20,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.06,
+    shadowRadius: 16,
+    elevation: 3,
   },
   tileIconCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
-    backgroundColor: 'rgba(242,113,33,0.12)',
+    marginRight: 16,
+    backgroundColor: 'rgba(242,113,33,0.1)',
   },
   tileText: {
     flex: 1,
   },
   tileLabel: {
-    fontSize: 15,
-    fontWeight: '600',
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: -0.2,
   },
   tileDescription: {
     marginTop: 4,
-    fontSize: 12,
-    lineHeight: 17,
+    fontSize: 13,
+    lineHeight: 18,
+    opacity: 0.65,
+  },
+  chevronWrapper: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(242,113,33,0.08)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 8,
   },
 });
 

@@ -7,14 +7,13 @@ import { ActivityIndicator, Image, SafeAreaView, ScrollView, StatusBar, StyleShe
 import UserAvatar from '../../components/UserAvatar';
 import { getBackendUrl } from '../../constants/backend-config';
 import { useTheme } from './ThemeContext';
-import ModernSidebar from '../../components/ModernSidebar';
+
 import Animated, { useAnimatedStyle, useSharedValue, withTiming, Easing, interpolate } from 'react-native-reanimated';
 import { Dimensions } from 'react-native';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-const SUPABASE_URL = 'https://cgyqweheceduyrpxqvwd.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_MJmY9d0yFuPp6KtQ62stGw_lFHMnNAK';
+
 
 interface AnnouncementPost {
   post_id: number;
@@ -47,42 +46,50 @@ export default function UserDashboard() {
     useCallback(() => {
       const loadStatus = async () => {
         try {
-            const savedTime = await AsyncStorage.getItem('userClockInTime');
-            setClockInTime(savedTime);
-            
-            // Load user name from employees table
             const userId = await AsyncStorage.getItem('userId');
             setUserId(userId);
+            
             if (userId) {
+              const baseUrl = getBackendUrl();
+              try {
+                const res = await fetch(`${baseUrl}/check-attendance-status.php?user_id=${userId}`, {
+                  headers: { 'ngrok-skip-browser-warning': 'true' }
+                });
+                const data = await res.json();
+                if (data.ok && data.clocked_in) {
+                  const [h, m] = data.timein.split(':');
+                  const hour = parseInt(h, 10);
+                  const ampm = hour >= 12 ? 'PM' : 'AM';
+                  const hour12 = hour % 12 || 12;
+                  const timeStr = `${hour12.toString().padStart(2, '0')}:${m} ${ampm}`;
+                  setClockInTime(timeStr);
+                  await AsyncStorage.setItem('userClockInTime', timeStr);
+                } else {
+                  setClockInTime(null);
+                  await AsyncStorage.removeItem('userClockInTime');
+                }
+              } catch (e) {
+                console.log("Failed to load status from backend, checking local storage...");
+                const savedTime = await AsyncStorage.getItem('userClockInTime');
+                setClockInTime(savedTime);
+              }
+
               try {
                 const response = await fetch(
-                  `${SUPABASE_URL}/rest/v1/employees?log_id=eq.${userId}&select=name`,
-                  {
-                    method: 'GET',
-                    headers: {
-                      'Content-Type': 'application/json',
-                      apikey: SUPABASE_ANON_KEY,
-                      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-                    },
-                  }
+                  `${baseUrl}/get-employee-profile.php?user_id=${userId}`,
+                  { headers: { 'ngrok-skip-browser-warning': 'true' } }
                 );
                 const data = await response.json();
-                if (data && data.length > 0 && data[0].name) {
-                  setUserName(data[0].name);
+                if (data?.ok && data.employee?.name) {
+                  setUserName(data.employee.name);
                 } else {
-                  // Fallback to username from AsyncStorage
                   const username = await AsyncStorage.getItem('username');
-                  if (username) {
-                    setUserName(username);
-                  }
+                  if (username) setUserName(username);
                 }
               } catch (e) {
                 console.log('Error loading user name:', e);
-                // Fallback to username from AsyncStorage
                 const username = await AsyncStorage.getItem('username');
-                if (username) {
-                  setUserName(username);
-                }
+                if (username) setUserName(username);
               }
             }
         } catch (e) {
@@ -93,6 +100,7 @@ export default function UserDashboard() {
       const loadAnnouncements = async () => {
         try {
           setAnnouncementsLoading(true);
+          const { SUPABASE_URL, SUPABASE_ANON_KEY } = await import('../../constants/backend-config');
           const base = `${SUPABASE_URL}/rest/v1/feeds_posts`;
           const select = 'post_id,emp_id,caption,image_url,kind,created_at,video_url,media_type,employees(name)';
           const query = `${base}?select=${encodeURIComponent(select)}&kind=eq.announcement&order=created_at.desc`;
@@ -120,7 +128,10 @@ export default function UserDashboard() {
           setAttendanceLoading(true);
           const userId = await AsyncStorage.getItem('userId');
           if (!userId) return;
-          const res = await fetch(`${getBackendUrl()}/get-attendance-history.php?user_id=${userId}`);
+          const baseUrl = getBackendUrl();
+          const res = await fetch(`${baseUrl}/get-attendance-history.php?user_id=${userId}`, {
+            headers: { 'ngrok-skip-browser-warning': 'true' },
+          });
           const data = await res.json();
           if (data.ok && data.history) {
             setAttendanceHistory(data.history.slice(0, 3));
@@ -142,40 +153,47 @@ export default function UserDashboard() {
     text: { color: colors.text },
     sub: { color: colors.subText },
     card: { backgroundColor: colors.card },
-    iconBg: { backgroundColor: isDark ? '#2C3E50' : '#E0E0E0' },
+    iconBg: { backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.02)' },
     border: { borderColor: colors.border }
   };
+
+  // Entrance animations
+  const fadeAnim = useSharedValue(0);
+  React.useEffect(() => {
+    fadeAnim.value = withTiming(1, { duration: 800, easing: Easing.out(Easing.exp) });
+  }, []);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: fadeAnim.value,
+    transform: [{ translateY: interpolate(fadeAnim.value, [0, 1], [20, 0]) }]
+  }));
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
       
-      {/* MAIN CONTENT */}
       <View style={[styles.mainWrapper, dyn.bg]}>
-        <ScrollView contentContainerStyle={styles.scrollContent}>
+        <ScrollView 
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
           
           {/* HEADER */}
           <View style={styles.header}>
-            <TouchableOpacity style={styles.menuButton} onPress={() => setSidebarVisible(true)}>
-              <Ionicons name="menu" size={28} color={colors.text} />
-            </TouchableOpacity>
-            <View>
-              <Text style={[styles.greeting, dyn.text]}>Hi, {userName}</Text>
-              <Text style={[styles.subGreeting, dyn.sub]}>Lets be productive today.</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <TouchableOpacity
+                onPress={() => setSidebarVisible(true)}
+                style={styles.menuButton}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="menu-outline" size={28} color={colors.text} />
+              </TouchableOpacity>
+              <View>
+                <Text style={[styles.greeting, dyn.text]}>Hi, {userName.split(' ')[0]}</Text>
+                <Text style={[styles.subGreeting, dyn.sub]}>Lets be productive today.</Text>
+              </View>
             </View>
             <View style={styles.headerActions}>
-              <TouchableOpacity 
-                style={styles.profileButton}
-                onPress={() => router.push('/userprofile')}
-              >
-                <UserAvatar
-                  userId={userId}
-                  displayName={userName}
-                  size={40}
-                  backgroundColor="#F27121"
-                />
-              </TouchableOpacity>
-              
               <TouchableOpacity 
                 style={styles.notificationButton}
                 onPress={() => router.push('/(tabs)/usernotifications' as any)}
@@ -183,201 +201,247 @@ export default function UserDashboard() {
                 <Ionicons name="notifications-outline" size={26} color={colors.text} />
                 <View style={styles.notificationBadge} />
               </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.profileButton}
+                onPress={() => router.push('/userprofile')}
+              >
+                <UserAvatar
+                  userId={userId}
+                  displayName={userName}
+                  size={44}
+                  backgroundColor="#F27121"
+                />
+              </TouchableOpacity>
             </View>
           </View>
 
-          {/* ATTENDANCE CARD - NOW DYNAMIC */}
-          <View style={[styles.attendanceCard, dyn.card]}>
-            <View style={styles.attendanceHeader}>
-              <Text style={[styles.cardTitle, dyn.sub]}>TODAYS ATTENDANCE</Text>
-              <Text style={[styles.dateText, dyn.sub]}>{currentDate}</Text>
-            </View>
-            
-            <View style={styles.timerContainer}>
-              <Text style={[styles.timerText, dyn.text]}>{clockInTime ? clockInTime : "-- : --"}</Text>
-              <Text style={styles.shiftText}>Shift: Regular (8:00 - 17:00)</Text>
-            </View>
-
-            <TouchableOpacity 
-              style={[styles.clockInButton, { backgroundColor: clockInTime ? '#27AE60' : '#F27121' }]} 
-              onPress={() => router.push('/userattendance')} 
-            >
-              <MaterialCommunityIcons name={clockInTime ? "eye" : "face-recognition"} size={24} color="#FFF" />
-              <Text style={styles.clockInText}>
-                  {clockInTime ? "VIEW STATUS" : "CLOCK IN"}
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* QUICK ACCESS GRID */}
-          <Text style={[styles.sectionTitle, dyn.text]}>Quick Access</Text>
-          <View style={styles.gridContainer}>
-            {[
-              { label: 'Activity', icon: 'camera-outline', route: '/useractivity', lib: Ionicons },
-              { label: 'Chat', icon: 'chatbubble-ellipses-outline', route: '/userchat', lib: Ionicons },
-              { label: 'Tasks & Feedback', icon: 'checkmark-done-outline', route: '/usertasks', lib: Ionicons },
-            ].map((item, index) => (
-               <TouchableOpacity key={index} style={[styles.gridItem, dyn.card]} onPress={() => item.route && router.push(item.route as any)}>
-                  <View style={[styles.iconCircle, dyn.iconBg]}>
-                      <item.lib name={item.icon as any} size={24} color={isDark ? "#FFF" : "#333"} />
-                  </View>
-                  <Text style={[styles.gridLabel, dyn.sub]}>{item.label}</Text>
-               </TouchableOpacity>
-            ))}
-          </View>
-
-           {/* RECENT ATTENDANCE */}
-           <View style={styles.sectionHeader}>
-             <Text style={[styles.sectionTitle, dyn.text]}>Recent Attendance</Text>
-             <TouchableOpacity onPress={() => router.push('/(tabs)/attendancehistory' as any)}>
-               <Text style={[styles.viewAllText, { color: '#F27121' }]}>View all</Text>
-             </TouchableOpacity>
-           </View>
-           
-           {attendanceLoading ? (
-              <ActivityIndicator size="small" color="#F27121" style={{marginBottom: 20}} />
-           ) : attendanceHistory.length === 0 ? (
-              <Text style={[dyn.sub, {marginBottom: 20}]}>No recent attendance.</Text>
-           ) : (
-              <View style={styles.historyContainer}>
-                {attendanceHistory.map(item => {
-                  const formatTime = (timeStr: string | null) => {
-                    if (!timeStr) return '--:--';
-                    const parts = timeStr.split(':');
-                    if (parts.length < 2) return timeStr;
-                    const h = parseInt(parts[0], 10);
-                    const m = parseInt(parts[1], 10);
-                    const ampm = h >= 12 ? 'PM' : 'AM';
-                    const h12 = h % 12 || 12;
-                    return `${h12}:${m.toString().padStart(2, '0')} ${ampm}`;
-                  };
-
-                  const clockIn = formatTime(item.timein);
-                  const clockOut = formatTime(item.timeout);
-                  const d = new Date(item.date);
-                  const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                  return (
-                    <View key={item.att_id} style={[styles.historyRow, dyn.card]}>
-                       <View style={styles.historyDateCol}>
-                         <Text style={[styles.historyDateText, dyn.text]}>{dateStr}</Text>
-                       </View>
-                       <View style={styles.historyTimeCol}>
-                         <Text style={[styles.historyLabel, dyn.sub]}>IN</Text>
-                         <Text style={[styles.historyValue, dyn.text]}>{clockIn}</Text>
-                       </View>
-                       <View style={styles.historyTimeCol}>
-                         <Text style={[styles.historyLabel, dyn.sub]}>OUT</Text>
-                         <Text style={[styles.historyValue, dyn.text]}>{clockOut}</Text>
-                       </View>
-                    </View>
-                  )
-                })}
-              </View>
-           )}
-
-          {/* COMPANY FEEDS — announcements from feeds (kind=announcement) */}
-          <View style={styles.sectionHeader}>
-            <Text style={[styles.sectionTitle, dyn.text]}>Company Feeds</Text>
-            <TouchableOpacity onPress={() => router.push('/feeds')}>
-              <Text style={[styles.viewAllText, { color: '#F27121' }]}>View all</Text>
-            </TouchableOpacity>
-          </View>
-          {announcementsLoading ? (
-            <View style={[styles.feedCard, dyn.card, styles.announcementLoading]}>
-              <ActivityIndicator size="small" color="#F27121" />
-              <Text style={[styles.feedContent, dyn.sub]}>Loading announcements...</Text>
-            </View>
-          ) : announcements.length === 0 ? (
-            <View style={[styles.feedCard, dyn.card]}>
-              <View style={styles.feedHeader}>
-                <Ionicons name="megaphone-outline" size={20} color="#F27121" />
-                <Text style={styles.feedTitle}>Announcement</Text>
-              </View>
-              <Text style={[styles.feedContent, dyn.sub]}>No announcements yet. Check back later or view Feeds for posts.</Text>
-            </View>
-          ) : (
-            announcements.map((ann) => (
-              <View key={ann.post_id} style={[styles.feedCard, dyn.card]}>
-                <View style={styles.feedHeader}>
-                  <Ionicons name="megaphone-outline" size={20} color="#F27121" />
-                  <Text style={styles.feedTitle}>Announcement</Text>
-                  <Text style={[styles.feedMeta, dyn.sub]}>
-                    {ann.employees?.name || 'Company'} • {ann.created_at ? new Date(ann.created_at).toLocaleDateString() : ''}
-                  </Text>
+          <Animated.View style={animatedStyle}>
+            {/* ATTENDANCE CARD - TARSI STYLE */}
+            <View style={[styles.attendanceCard, dyn.card]}>
+              <View style={styles.attendanceContent}>
+                <View style={styles.attendanceLeft}>
+                   <Text style={[styles.cardTitle, dyn.sub]}>TODAY</Text>
+                   <Text style={[styles.timerText, dyn.text]}>{clockInTime ? clockInTime : "-- : --"}</Text>
+                   <Text style={styles.shiftText}>8:00 AM - 5:00 PM</Text>
                 </View>
-                <Text style={[styles.feedContent, dyn.text]}>{ann.caption}</Text>
-                {ann.image_url && (
-                  <View style={styles.announcementImageWrapper}>
+                <View style={styles.attendanceDivider} />
+                <View style={styles.attendanceRight}>
+                   <Text style={[styles.cardTitle, dyn.sub]}>STATUS</Text>
+                   <View style={[styles.statusBadge, { backgroundColor: clockInTime ? 'rgba(39, 174, 96, 0.1)' : 'rgba(242, 113, 33, 0.1)' }]}>
+                      <Text style={[styles.statusText, { color: clockInTime ? '#27AE60' : '#F27121' }]}>
+                        {clockInTime ? 'In Office' : 'Not In'}
+                      </Text>
+                   </View>
+                </View>
+              </View>
+              
+              <TouchableOpacity 
+                style={[styles.clockInButton, { backgroundColor: '#F27121' }]} 
+                onPress={() => router.push('/userattendance')} 
+              >
+                <Text style={styles.clockInText}>
+                    {clockInTime ? "View Status" : "Clock In Now"}
+                </Text>
+                <Ionicons name="arrow-forward" size={20} color="#FFF" />
+              </TouchableOpacity>
+            </View>
+
+            {/* QUICK ACCESS GRID */}
+            <View style={styles.gridContainer}>
+              {[
+                { label: 'Activity', icon: 'camera-outline', route: '/useractivity', lib: Ionicons },
+                { label: 'Chat', icon: 'chatbubble-outline', route: '/userchat', lib: Ionicons },
+                { label: 'Tasks', icon: 'checkbox-outline', route: '/usertasks', lib: Ionicons },
+              ].map((item, index) => (
+                 <TouchableOpacity key={index} style={[styles.gridItem, dyn.card]} onPress={() => item.route && router.push(item.route as any)}>
+                    <View style={[styles.iconCircle, dyn.iconBg]}>
+                        <item.lib name={item.icon as any} size={24} color={isDark ? "#FFF" : "#333"} />
+                    </View>
+                    <Text style={[styles.gridLabel, dyn.sub]}>{item.label}</Text>
+                 </TouchableOpacity>
+              ))}
+            </View>
+
+             {/* RECENT ATTENDANCE */}
+             <View style={styles.sectionHeader}>
+               <Text style={[styles.sectionTitle, dyn.text]}>Recent History</Text>
+               <TouchableOpacity onPress={() => router.push('/(tabs)/attendancehistory' as any)}>
+                 <Ionicons name="ellipsis-horizontal" size={20} color={colors.subText} />
+               </TouchableOpacity>
+             </View>
+             
+             {attendanceLoading ? (
+                <ActivityIndicator size="small" color="#F27121" style={{marginBottom: 20}} />
+             ) : (
+                <View style={styles.historyContainer}>
+                  {attendanceHistory.length === 0 ? (
+                    <Text style={[dyn.sub, {marginBottom: 20}]}>No records found.</Text>
+                  ) : (
+                    attendanceHistory.map(item => {
+                      const formatTime = (timeStr: string | null) => {
+                        if (!timeStr) return '--:--';
+                        const parts = timeStr.split(':');
+                        const h = parseInt(parts[0], 10);
+                        const m = parseInt(parts[1], 10);
+                        const ampm = h >= 12 ? 'PM' : 'AM';
+                        return `${h % 12 || 12}:${m.toString().padStart(2, '0')} ${ampm}`;
+                      };
+                      return (
+                        <View key={item.att_id} style={[styles.historyRow, dyn.card]}>
+                           <View style={[styles.historyIcon, { backgroundColor: 'rgba(39, 174, 96, 0.1)' }]}>
+                             <Ionicons name="time-outline" size={20} color="#27AE60" />
+                           </View>
+                           <View style={{ flex: 1, marginLeft: 12 }}>
+                             <Text style={[styles.historyDateText, dyn.text]}>{new Date(item.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</Text>
+                             <Text style={[styles.historyLabel, dyn.sub]}>{formatTime(item.timein)} • {item.timeout ? formatTime(item.timeout) : 'Active'}</Text>
+                           </View>
+                           <Ionicons name="chevron-forward" size={18} color={colors.subText} />
+                        </View>
+                      )
+                    })
+                  )}
+                </View>
+             )}
+
+            {/* COMPANY FEEDS */}
+            <View style={styles.sectionHeader}>
+              <Text style={[styles.sectionTitle, dyn.text]}>Announcements</Text>
+            </View>
+            {announcementsLoading ? (
+              <ActivityIndicator size="small" color="#F27121" />
+            ) : announcements.length === 0 ? (
+              <View style={[styles.feedCard, dyn.card, { borderRadius: 28 }]}>
+                <Text style={[styles.feedContent, dyn.sub]}>No new announcements.</Text>
+              </View>
+            ) : (
+              announcements.map((ann) => (
+                <View key={ann.post_id} style={[styles.feedCard, dyn.card]}>
+                  <View style={styles.feedHeader}>
+                    <UserAvatar displayName={ann.employees?.name || 'C'} size={32} backgroundColor="#F27121" />
+                    <View style={{ marginLeft: 10 }}>
+                      <Text style={[styles.feedTitle, dyn.text]}>{ann.employees?.name || 'Company'}</Text>
+                      <Text style={[styles.feedMeta, dyn.sub]}>{ann.created_at ? new Date(ann.created_at).toLocaleDateString() : ''}</Text>
+                    </View>
+                  </View>
+                  <Text style={[styles.feedContent, dyn.text]}>{ann.caption}</Text>
+                  {ann.image_url && (
                     <Image
-                      source={{
-                        uri: (() => {
-                          const raw = ann.image_url || '';
-                          if (raw.startsWith('http://') || raw.startsWith('https://') || raw.startsWith('file://')) return raw;
-                          if (raw.startsWith('data:')) return raw;
-                          return `data:image/jpeg;base64,${raw}`;
-                        })(),
-                      }}
+                      source={{ uri: ann.image_url.startsWith('http') ? ann.image_url : `data:image/jpeg;base64,${ann.image_url}` }}
                       style={styles.announcementImage}
                       resizeMode="cover"
                     />
-                  </View>
-                )}
-              </View>
-            ))
-          )}
+                  )}
+                </View>
+              ))
+            )}
+          </Animated.View>
 
+          <View style={{ height: 100 }} />
         </ScrollView>
       </View>
     </View>
+
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 }, // Dynamic background applied inline
-  mainWrapper: { flex: 1, backgroundColor: '#FFF' }, // Will be overridden by dyn.bg inline but needed for shadow/etc
-  scrollContent: { padding: 20, paddingTop: 45, paddingBottom: 50 },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 25, marginTop: 10 },
-  greeting: { fontSize: 22, fontWeight: 'bold' },
-  subGreeting: { fontSize: 14 },
-  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  profileButton: { padding: 5 },
-  notificationButton: { padding: 5, position: 'relative' },
-  notificationBadge: { position: 'absolute', top: 5, right: 5, backgroundColor: '#F27121', width: 8, height: 8, borderRadius: 4 },
-  settingsButton: { padding: 5 },
-  menuButton: { padding: 5 },
-  
-  attendanceCard: { borderRadius: 15, padding: 20, marginBottom: 30, borderLeftWidth: 5, borderLeftColor: '#F27121', elevation: 3, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 5 },
-  attendanceHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 15 },
-  cardTitle: { fontSize: 12, fontWeight: '700', letterSpacing: 1 },
-  dateText: { fontSize: 12 },
-  timerContainer: { alignItems: 'center', marginBottom: 20 },
-  timerText: { fontSize: 36, fontWeight: 'bold', letterSpacing: 2 },
-  shiftText: { color: '#F27121', fontSize: 14, marginTop: 5 },
-  clockInButton: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', padding: 15, borderRadius: 10 },
-  clockInText: { color: '#FFF', fontWeight: 'bold', fontSize: 16, marginLeft: 10 },
-  
-  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
-  sectionTitle: { fontSize: 18, fontWeight: 'bold' },
-  viewAllText: { fontSize: 14, fontWeight: '600' },
-  gridContainer: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginBottom: 20 },
-  gridItem: { width: '30%', borderRadius: 12, padding: 15, alignItems: 'center', marginBottom: 15, elevation: 2, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 3 },
-  iconCircle: { width: 50, height: 50, borderRadius: 25, justifyContent: 'center', alignItems: 'center', marginBottom: 10 },
-  gridLabel: { fontSize: 12, fontWeight: '500' },
-  
-  historyContainer: { marginBottom: 20 },
-  historyRow: { flexDirection: 'row', alignItems: 'center', padding: 15, borderRadius: 12, marginBottom: 10, elevation: 1 },
-  historyDateCol: { flex: 1.5 },
-  historyDateText: { fontSize: 14, fontWeight: 'bold' },
-  historyTimeCol: { flex: 1, alignItems: 'flex-start' },
-  historyLabel: { fontSize: 10, fontWeight: 'bold', marginBottom: 2 },
-  historyValue: { fontSize: 14, fontWeight: '600' },
 
-  feedCard: { padding: 15, borderRadius: 12, marginBottom: 12, elevation: 2 },
-  feedHeader: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', marginBottom: 10, gap: 6 },
-  feedTitle: { color: '#F27121', fontWeight: 'bold', marginLeft: 8 },
-  feedMeta: { fontSize: 12, marginLeft: 'auto' },
-  feedContent: { lineHeight: 20 },
-  announcementLoading: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  announcementImageWrapper: { marginTop: 10, borderRadius: 10, overflow: 'hidden' },
-  announcementImage: { width: '100%', height: 140 },
+  container: { flex: 1 },
+  mainWrapper: { flex: 1 },
+  scrollContent: { padding: 24, paddingTop: 60, paddingBottom: 120 },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 30 },
+  menuButton: { padding: 6, borderRadius: 20 },
+  greeting: { fontSize: 26, fontWeight: '800', letterSpacing: -0.5 },
+  subGreeting: { fontSize: 15, marginTop: 2, opacity: 0.7 },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  profileButton: { marginLeft: 4 },
+  notificationButton: { 
+    padding: 10, 
+    borderRadius: 20, 
+    backgroundColor: 'rgba(0,0,0,0.03)',
+    position: 'relative' 
+  },
+  notificationBadge: { 
+    position: 'absolute', 
+    top: 10, 
+    right: 10, 
+    backgroundColor: '#F27121', 
+    width: 8, 
+    height: 8, 
+    borderRadius: 4,
+    borderWidth: 1.5,
+    borderColor: '#FFF'
+  },
+  
+  attendanceCard: { 
+    borderRadius: 28, 
+    padding: 24, 
+    marginBottom: 30, 
+    shadowColor: '#000', 
+    shadowOpacity: 0.08, 
+    shadowRadius: 20, 
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 5
+  },
+  attendanceContent: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
+  attendanceLeft: { flex: 1 },
+  attendanceDivider: { width: 1, height: '80%', backgroundColor: 'rgba(0,0,0,0.05)', marginHorizontal: 20 },
+  attendanceRight: { flex: 0.8 },
+  
+  cardTitle: { fontSize: 11, fontWeight: '800', letterSpacing: 1.2, marginBottom: 8, opacity: 0.6 },
+  timerText: { fontSize: 32, fontWeight: '800', letterSpacing: -1 },
+  shiftText: { fontSize: 13, opacity: 0.5, marginTop: 4 },
+  
+  statusBadge: { alignSelf: 'flex-start', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12 },
+  statusText: { fontSize: 13, fontWeight: '700' },
+  
+  clockInButton: { 
+    flexDirection: 'row', 
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    padding: 18, 
+    borderRadius: 20,
+    gap: 10
+  },
+  clockInText: { color: '#FFF', fontWeight: '800', fontSize: 16 },
+  
+  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, marginTop: 10 },
+  sectionTitle: { fontSize: 20, fontWeight: '800', letterSpacing: -0.5 },
+  
+  gridContainer: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 30 },
+  gridItem: { 
+    width: '31%', 
+    borderRadius: 24, 
+    padding: 20, 
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 10,
+    elevation: 2
+  },
+  iconCircle: { width: 54, height: 54, borderRadius: 27, justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
+  gridLabel: { fontSize: 13, fontWeight: '700' },
+  
+  historyContainer: { marginBottom: 30 },
+  historyRow: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    padding: 16, 
+    borderRadius: 24, 
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.03,
+    shadowRadius: 8,
+    elevation: 1
+  },
+  historyIcon: { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center' },
+  historyDateText: { fontSize: 15, fontWeight: '700' },
+  historyLabel: { fontSize: 13, opacity: 0.6, marginTop: 2 },
+
+  feedCard: { padding: 24, borderRadius: 28, marginBottom: 16, elevation: 2, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 15 },
+  feedHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
+  feedTitle: { fontWeight: '800', fontSize: 16 },
+  feedMeta: { fontSize: 12, opacity: 0.5, marginTop: 2 },
+  feedContent: { lineHeight: 22, fontSize: 15, opacity: 0.8 },
+  announcementImage: { width: '100%', height: 200, borderRadius: 20, marginTop: 16 },
 });

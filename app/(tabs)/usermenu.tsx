@@ -122,6 +122,19 @@ export default function UserMenu() {
       cancelText: 'Cancel',
       onConfirm: async () => {
         try {
+          const userId = await AsyncStorage.getItem('userId');
+          if (userId) {
+            try {
+              await fetch(`${getBackendUrl()}/update-online-status.php`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' },
+                body: JSON.stringify({ user_id: userId, is_online: false })
+              });
+            } catch (e) {
+              console.log('Failed to update online status on logout', e);
+            }
+          }
+
           // 1. Clear every potential session key at once
           await AsyncStorage.multiRemove([
             'userId', 
@@ -477,90 +490,116 @@ export default function UserMenu() {
 
 // STATIC LAYOUT STYLES
 const styles = StyleSheet.create({
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20 },
-  headerTitle: { fontSize: 18, fontWeight: 'bold' },
-  iconBtn: { padding: 5 },
-  content: { padding: 20 },
-  profileCard: { flexDirection: 'row', alignItems: 'center', padding: 20, borderRadius: 15, marginBottom: 30 },
-  avatarCircle: { width: 60, height: 60, borderRadius: 30, justifyContent: 'center', alignItems: 'center', marginRight: 15 },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 24, paddingTop: 20, paddingBottom: 16 },
+  headerTitle: { fontSize: 20, fontWeight: '800', letterSpacing: -0.5 },
+  iconBtn: { padding: 8, borderRadius: 20, backgroundColor: 'rgba(0,0,0,0.04)' },
+  content: { padding: 24, paddingBottom: 120 },
+  profileCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 24,
+    borderRadius: 28,
+    marginBottom: 32,
+    shadowColor: '#000',
+    shadowOpacity: 0.07,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 4,
+  },
+  avatarCircle: { width: 64, height: 64, borderRadius: 32, justifyContent: 'center', alignItems: 'center', marginRight: 16 },
   profileInfo: { flex: 1 },
-  profileName: { fontSize: 18, fontWeight: 'bold' },
-  profileRole: { fontSize: 12, marginBottom: 4 },
-  profileId: { color: '#F27121', fontSize: 12, fontWeight: 'bold' },
+  profileName: { fontSize: 20, fontWeight: '800', letterSpacing: -0.3 },
+  profileRole: { fontSize: 13, marginBottom: 4, opacity: 0.6, marginTop: 2 },
+  profileId: { color: '#F27121', fontSize: 13, fontWeight: '700' },
   editBtn: { padding: 10 },
-  sectionTitle: { fontSize: 12, fontWeight: 'bold', marginBottom: 10, marginLeft: 5, letterSpacing: 1 },
-  menuGroup: { borderRadius: 15, marginBottom: 25, overflow: 'hidden' },
-  menuItem: { flexDirection: 'row', alignItems: 'center', padding: 15, borderBottomWidth: 1 },
-  menuIconBox: { width: 35, height: 35, borderRadius: 8, justifyContent: 'center', alignItems: 'center', marginRight: 15 },
+  sectionTitle: { fontSize: 11, fontWeight: '800', marginBottom: 12, marginLeft: 4, letterSpacing: 1.5, opacity: 0.5 },
+  menuGroup: {
+    borderRadius: 24,
+    marginBottom: 28,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
+  },
+  menuItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 16, paddingHorizontal: 20, borderBottomWidth: StyleSheet.hairlineWidth },
+  menuIconBox: { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center', marginRight: 16 },
   menuText: { flex: 1 },
-  menuLabel: { fontSize: 15, fontWeight: '500' },
-  menuSub: { fontSize: 11 },
-  logoutBtn: { borderWidth: 1, padding: 15, borderRadius: 12, alignItems: 'center', marginBottom: 20 },
-  logoutText: { color: '#C0392B', fontWeight: 'bold', fontSize: 16 },
-  versionText: { textAlign: 'center', fontSize: 12, marginBottom: 30 },
+  menuLabel: { fontSize: 16, fontWeight: '600' },
+  menuSub: { fontSize: 12, opacity: 0.55, marginTop: 2 },
+  logoutBtn: { borderWidth: 1.5, padding: 18, borderRadius: 24, alignItems: 'center', marginBottom: 20 },
+  logoutText: { color: '#C0392B', fontWeight: '800', fontSize: 16, letterSpacing: 0.5 },
+  versionText: { textAlign: 'center', fontSize: 12, marginBottom: 30, opacity: 0.4 },
   featuresRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    borderRadius: 15,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    marginBottom: 25,
+    borderRadius: 24,
+    paddingVertical: 20,
+    paddingHorizontal: 16,
+    marginBottom: 28,
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
+    elevation: 2,
   },
   featureItem: {
     flex: 1,
     alignItems: 'center',
   },
   featureIconBox: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 6,
+    marginBottom: 8,
   },
   featureLabel: {
-    fontSize: 11,
+    fontSize: 12,
+    fontWeight: '600',
     textAlign: 'center',
   },
   // Password Modal Styles
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: 'flex-end',
     padding: 20,
   },
   modalContent: {
     width: '100%',
-    maxWidth: 400,
-    borderRadius: 15,
-    padding: 20,
+    borderRadius: 28,
+    padding: 28,
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 24,
   },
   modalTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
+    fontSize: 22,
+    fontWeight: '800',
+    letterSpacing: -0.5,
   },
   modalBody: {
     width: '100%',
   },
   inputLabel: {
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 13,
+    fontWeight: '700',
     marginBottom: 8,
+    opacity: 0.7,
+    letterSpacing: 0.5,
   },
   passwordInputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 15,
-    height: 50,
+    borderRadius: 16,
+    paddingHorizontal: 18,
+    height: 56,
   },
   passwordInput: {
     flex: 1,
@@ -569,14 +608,14 @@ const styles = StyleSheet.create({
   },
   changePasswordButton: {
     backgroundColor: '#F27121',
-    padding: 15,
-    borderRadius: 8,
+    padding: 18,
+    borderRadius: 20,
     alignItems: 'center',
-    marginTop: 20,
+    marginTop: 24,
   },
   changePasswordButtonText: {
     color: '#FFF',
     fontSize: 16,
-    fontWeight: 'bold',
+    fontWeight: '800',
   },
 });

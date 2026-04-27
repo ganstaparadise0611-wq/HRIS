@@ -18,7 +18,7 @@ export const NETWORK_CONFIG: NetworkConfig = {
   ngrok: 'https://ellen-subtrigonal-velda.ngrok-free.dev',
 
   // Local network URL (your PC on Wi‑Fi) — same network only
-  local: 'http://192.168.15.126:8000',
+  local: 'http://192.168.15.4:8000',
 
   // Custom tunnel when ngrok hits bandwidth limit. See TUNNEL-ALTERNATIVES.md
   custom: undefined, // Set to your tunnel URL, e.g. from: npx localtunnel --port 8000

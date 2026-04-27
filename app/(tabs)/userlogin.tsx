@@ -612,9 +612,9 @@ export default function UserLogin() {
               contentContainerStyle={styles.formScrollContent}
               showsVerticalScrollIndicator={false}
             >
-              <Text style={[styles.headerTitle, dyn.text]}>{isSignUp ? 'Create Account' : 'Welcome Back'}</Text>
+              <Text style={[styles.headerTitle, dyn.text]}>{isSignUp ? 'Create Account' : 'Welcome to TDTPowerSteel'}</Text>
               <Text style={[styles.headerSubtitle, dyn.sub]}>
-                {isSignUp ? 'Sign up to access HR Portal' : 'Sign in to access HR Portal'}
+                {isSignUp ? 'Sign up to access your HRIS portal' : 'Sign in to continue to your HRIS portal'}
               </Text>
 
               <Text style={[styles.label, dyn.sub]}>Username / Email</Text>
@@ -1027,19 +1027,19 @@ const styles = StyleSheet.create({
   contentWrapper: { flex: 1, justifyContent: 'center' },
   logoContainer: { alignItems: 'center', marginBottom: 32 },
   logoImage: { width: 340, height: 140 },
-  formContainer: { width: '100%', backgroundColor: '#252525', borderRadius: 15, elevation: 8, maxHeight: '85%' },
+  formContainer: { width: '100%', backgroundColor: '#252525', borderRadius: 32, elevation: 15, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 25, maxHeight: '85%' },
   formScrollView: { maxHeight: 600 },
   formScrollContent: { padding: 25 },
   headerTitle: { color: '#fff', fontSize: 24, fontWeight: 'bold', marginBottom: 5 },
   headerSubtitle: { color: '#888', fontSize: 14, marginBottom: 25 },
   label: { color: '#ccc', fontWeight: '600', marginBottom: 8, marginTop: 10, fontSize: 14 },
-  input: { height: 55, backgroundColor: '#1A1A1A', borderRadius: 8, paddingHorizontal: 15, fontSize: 16, color: '#fff', borderWidth: 1, borderColor: '#333' },
+  input: { height: 55, backgroundColor: '#1A1A1A', borderRadius: 16, paddingHorizontal: 15, fontSize: 16, color: '#fff', borderWidth: 1, borderColor: '#333' },
   passwordContainer: { 
     flexDirection: 'row', 
     alignItems: 'center', 
     height: 55, 
     backgroundColor: '#1A1A1A', 
-    borderRadius: 8, 
+    borderRadius: 16, 
     borderWidth: 1, 
     borderColor: '#333',
     paddingHorizontal: 15,
@@ -1062,7 +1062,7 @@ const styles = StyleSheet.create({
   toggleContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 20, marginBottom: 25 },
   switchWrapper: { flexDirection: 'row', alignItems: 'center' },
   toggleText: { marginLeft: 8, color: '#ccc', fontSize: 13 },
-  loginButton: { backgroundColor: '#F27121', height: 55, borderRadius: 8, justifyContent: 'center', alignItems: 'center', shadowColor: "#F27121", shadowOpacity: 0.4, shadowRadius: 5, elevation: 5 },
+  loginButton: { backgroundColor: '#F27121', height: 55, borderRadius: 20, justifyContent: 'center', alignItems: 'center', shadowColor: "#F27121", shadowOpacity: 0.4, shadowRadius: 5, elevation: 5 },
   loginButtonText: { color: '#fff', fontSize: 18, fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: 1 },
   forgotPassword: { color: '#F27121', fontSize: 13, fontWeight: '600' },
   footer: { paddingVertical: 20, width: '100%', alignItems: 'center' },
@@ -1073,7 +1073,7 @@ const styles = StyleSheet.create({
   captureButton: { 
     backgroundColor: '#333', 
     height: 50, 
-    borderRadius: 8, 
+    borderRadius: 20, 
     justifyContent: 'center', 
     alignItems: 'center',
     borderWidth: 1,
@@ -1100,7 +1100,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 8,
     backgroundColor: '#F27121',
-    borderRadius: 5,
+    borderRadius: 20,
   },
   retakeText: { color: '#fff', fontSize: 14, fontWeight: '600' },
   switchModeContainer: { 
@@ -1174,7 +1174,7 @@ const styles = StyleSheet.create({
   genderButton: { 
     flex: 1, 
     paddingVertical: 12, 
-    borderRadius: 8, 
+    borderRadius: 16, 
     borderWidth: 1, 
     borderColor: '#333', 
     backgroundColor: '#1A1A1A', 
@@ -1260,7 +1260,7 @@ const styles = StyleSheet.create({
   datePickerButton2: {
     flex: 1,
     paddingVertical: 12,
-    borderRadius: 8,
+    borderRadius: 16,
     alignItems: 'center',
   },
   cancelButton2: {

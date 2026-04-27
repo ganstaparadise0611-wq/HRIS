@@ -12,6 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { getBackendUrl, SUPABASE_URL, SUPABASE_ANON_KEY } from '../../constants/backend-config';
 import { recheckNetwork } from '../../constants/network-detector';
 import { useTheme } from './ThemeContext';
+import Reanimated, { useAnimatedStyle, useSharedValue, withTiming, Easing, interpolate } from 'react-native-reanimated';
 
 interface Activity {
   activity_id: number;
@@ -125,6 +126,17 @@ export default function UserActivity() {
     border: { borderColor: colors.border },
     iconColor: isDark ? "#FFF" : "#333"
   };
+
+  // Entrance animations
+  const fadeAnim = useSharedValue(0);
+  React.useEffect(() => {
+    fadeAnim.value = withTiming(1, { duration: 800, easing: Easing.out(Easing.exp) });
+  }, []);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: fadeAnim.value,
+    transform: [{ translateY: interpolate(fadeAnim.value, [0, 1], [20, 0]) }]
+  }));
 
   useEffect(() => {
     loadEmpIdAndActivities();
@@ -483,6 +495,7 @@ export default function UserActivity() {
         </TouchableOpacity>
       </View>
 
+      <Reanimated.View style={[animatedStyle, { flex: 1 }]}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
         
         {/* NEW ENTRY */}
@@ -761,6 +774,7 @@ export default function UserActivity() {
         </Modal>
 
       </ScrollView>
+      </Reanimated.View>
     </SafeAreaView>
   );
 }
@@ -772,50 +786,50 @@ const styles = StyleSheet.create({
   backButton: { padding: 5, width: 34 },
   scrollContent: { padding: 20 },
   sectionTitle: { fontSize: 14, fontWeight: 'bold', marginBottom: 15, textTransform: 'uppercase', letterSpacing: 1 },
-  formCard: { borderRadius: 12, padding: 20, marginBottom: 30, elevation: 2 },
-  photoUpload: { height: 100, borderRadius: 8, borderWidth: 1, borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center', marginBottom: 20 },
+  formCard: { borderRadius: 24, padding: 20, marginBottom: 30, elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 15 },
+  photoUpload: { height: 100, borderRadius: 16, borderWidth: 1, borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center', marginBottom: 20 },
   photoUploadFilled: { borderStyle: 'solid', padding: 0 },
-  photoPreview: { width: '100%', height: '100%', borderRadius: 8 },
+  photoPreview: { width: '100%', height: '100%', borderRadius: 16 },
   photoText: { marginTop: 5, fontSize: 12 },
   label: { marginBottom: 8, fontWeight: '600' },
-  input: { padding: 15, borderRadius: 8, borderWidth: 1, marginBottom: 20 },
-  submitButton: { backgroundColor: '#F27121', padding: 15, borderRadius: 8, alignItems: 'center', marginTop: 10 },
+  input: { padding: 15, borderRadius: 16, borderWidth: 1, marginBottom: 20 },
+  submitButton: { backgroundColor: '#F27121', padding: 15, borderRadius: 20, alignItems: 'center', marginTop: 10 },
   submitButtonDisabled: { opacity: 0.6 },
   submitText: { color: '#FFF', fontWeight: 'bold', fontSize: 16 },
   activityItem: { flexDirection: 'row', marginBottom: 12 },
   timelineContainer: { alignItems: 'center', marginRight: 12, width: 18 },
   timelineDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#F27121', zIndex: 1 },
   timelineLine: { width: 2, flex: 1, marginTop: -4 },
-  activityContent: { flex: 1, borderRadius: 10, padding: 12, elevation: 1 },
+  activityContent: { flex: 1, borderRadius: 24, padding: 16, elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 15 },
   activityHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4, alignItems: 'center' },
   activityTime: { color: '#F27121', fontWeight: 'bold', fontSize: 11 },
-  statusBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 10 },
+  statusBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 12 },
   statusText: { fontSize: 10, marginLeft: 3, fontWeight: '600' },
   activityTitle: { fontSize: 15, fontWeight: 'bold', marginBottom: 4 },
   locationRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
   activityLocation: { fontSize: 12, marginLeft: 4, flex: 1 },
-  photoThumbnail: { marginTop: 8, borderRadius: 6, overflow: 'hidden' },
-  activityPhotoThumb: { width: '100%', height: 72, borderRadius: 6 },
-  fileThumbnail: { marginTop: 8, height: 56, borderRadius: 6, borderWidth: 1, borderStyle: 'dashed', borderColor: 'rgba(128,128,128,0.4)', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12 },
+  photoThumbnail: { marginTop: 8, borderRadius: 16, overflow: 'hidden' },
+  activityPhotoThumb: { width: '100%', height: 72, borderRadius: 16 },
+  fileThumbnail: { marginTop: 8, height: 56, borderRadius: 16, borderWidth: 1, borderStyle: 'dashed', borderColor: 'rgba(128,128,128,0.4)', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12 },
   fileThumbnailText: { marginLeft: 10, fontSize: 13, flex: 1 },
-  photoPlaceholder: { marginTop: 8, height: 56, borderRadius: 6, borderWidth: 1, borderStyle: 'dashed', borderColor: 'rgba(128,128,128,0.4)', justifyContent: 'center', alignItems: 'center', flexDirection: 'row' },
+  photoPlaceholder: { marginTop: 8, height: 56, borderRadius: 16, borderWidth: 1, borderStyle: 'dashed', borderColor: 'rgba(128,128,128,0.4)', justifyContent: 'center', alignItems: 'center', flexDirection: 'row' },
   photoPlaceholderText: { fontSize: 12, marginLeft: 6 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', padding: 20 },
-  modalContent: { width: '100%', maxWidth: 380, borderRadius: 16, padding: 20, maxHeight: '85%' },
+  modalContent: { width: '100%', maxWidth: 380, borderRadius: 24, padding: 24, maxHeight: '85%' },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 },
   modalTitle: { fontSize: 18, fontWeight: 'bold', flex: 1, marginRight: 12 },
   modalDetails: { marginBottom: 16 },
   modalDetailRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
   modalDetailText: { fontSize: 15, marginLeft: 10, flex: 1 },
-  modalPhotoContainer: { borderRadius: 10, overflow: 'hidden', marginBottom: 16, backgroundColor: 'rgba(0,0,0,0.3)' },
-  modalPhoto: { width: '100%', height: 220, borderRadius: 10 },
-  modalNoPhoto: { marginBottom: 16, padding: 32, borderRadius: 10, borderWidth: 1, borderStyle: 'dashed', borderColor: 'rgba(128,128,128,0.4)', alignItems: 'center', justifyContent: 'center' },
+  modalPhotoContainer: { borderRadius: 16, overflow: 'hidden', marginBottom: 16, backgroundColor: 'rgba(0,0,0,0.3)' },
+  modalPhoto: { width: '100%', height: 220, borderRadius: 16 },
+  modalNoPhoto: { marginBottom: 16, padding: 32, borderRadius: 16, borderWidth: 1, borderStyle: 'dashed', borderColor: 'rgba(128,128,128,0.4)', alignItems: 'center', justifyContent: 'center' },
   modalNoPhotoText: { marginTop: 10, fontSize: 14 },
-  modalFileContainer: { marginBottom: 16, padding: 24, borderRadius: 10, borderWidth: 1, borderStyle: 'dashed', borderColor: 'rgba(128,128,128,0.4)', alignItems: 'center', justifyContent: 'center' },
+  modalFileContainer: { marginBottom: 16, padding: 24, borderRadius: 16, borderWidth: 1, borderStyle: 'dashed', borderColor: 'rgba(128,128,128,0.4)', alignItems: 'center', justifyContent: 'center' },
   modalFileLabel: { marginTop: 12, fontSize: 15, fontWeight: '600' },
-  modalViewFileButton: { marginTop: 16, paddingVertical: 12, paddingHorizontal: 24, borderRadius: 10, alignItems: 'center', minWidth: 140 },
+  modalViewFileButton: { marginTop: 16, paddingVertical: 12, paddingHorizontal: 24, borderRadius: 16, alignItems: 'center', minWidth: 140 },
   modalViewFileText: { color: '#FFF', fontWeight: 'bold', fontSize: 15 },
-  modalCloseButton: { paddingVertical: 14, borderRadius: 10, alignItems: 'center' },
+  modalCloseButton: { paddingVertical: 14, borderRadius: 16, alignItems: 'center' },
   modalCloseText: { fontSize: 16, fontWeight: '600' },
   attachOverlay: {
     flex: 1,
@@ -823,29 +837,29 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.5)',
   },
   attachSheet: {
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 20,
-    paddingBottom: 30,
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    padding: 24,
+    paddingBottom: 40,
   },
   attachTitle: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: 'bold',
-    marginBottom: 12,
+    marginBottom: 16,
   },
   attachOption: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 10,
+    paddingVertical: 12,
   },
   attachOptionText: {
-    marginLeft: 10,
+    marginLeft: 12,
     fontSize: 15,
   },
   attachCancelButton: {
-    marginTop: 12,
-    paddingVertical: 10,
-    borderRadius: 10,
+    marginTop: 16,
+    paddingVertical: 12,
+    borderRadius: 16,
     alignItems: 'center',
     borderWidth: 1,
   },
@@ -855,6 +869,6 @@ const styles = StyleSheet.create({
   },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   loadingText: { marginTop: 10, fontSize: 14 },
-  emptyContainer: { padding: 40, alignItems: 'center', borderRadius: 12, marginTop: 20 },
+  emptyContainer: { padding: 40, alignItems: 'center', borderRadius: 24, marginTop: 20, elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 15 },
   emptyText: { marginTop: 10, fontSize: 14 },
 });

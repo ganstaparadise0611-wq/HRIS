@@ -11,6 +11,7 @@ import { useCustomAlert } from '../../hooks/useCustomAlert';
 import { getBackendUrl, SUPABASE_URL, SUPABASE_ANON_KEY } from '../../constants/backend-config';
 import { recheckNetwork } from '../../constants/network-detector';
 import { useTheme } from './ThemeContext';
+import Reanimated, { useAnimatedStyle, useSharedValue, withTiming, Easing, interpolate } from 'react-native-reanimated';
 
 const ON_DUTY_TYPES = [
   'Sales Support',
@@ -335,6 +336,17 @@ export default function UserOnDuty() {
     input: { backgroundColor: isDark ? '#252525' : '#F0F0F0', color: colors.text, borderColor: colors.border },
   };
 
+  // Entrance animations
+  const fadeAnim = useSharedValue(0);
+  React.useEffect(() => {
+    fadeAnim.value = withTiming(1, { duration: 800, easing: Easing.out(Easing.exp) });
+  }, []);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: fadeAnim.value,
+    transform: [{ translateY: interpolate(fadeAnim.value, [0, 1], [20, 0]) }]
+  }));
+
   if (loading) {
     return (
       <SafeAreaView style={[styles.container, dyn.bg]}>
@@ -360,6 +372,7 @@ export default function UserOnDuty() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
+        <Reanimated.View style={animatedStyle}>
         {step === 1 ? (
           /* STEP 1: BASIC INFO */
           <View>
@@ -548,6 +561,7 @@ export default function UserOnDuty() {
             </View>
           </View>
         )}
+        </Reanimated.View>
       </ScrollView>
 
       {/* On Duty Type Dropdown Modal */}
@@ -777,7 +791,7 @@ const styles = StyleSheet.create({
   input: {
     paddingHorizontal: 15,
     paddingVertical: 12,
-    borderRadius: 8,
+    borderRadius: 16,
     fontSize: 16,
     borderWidth: 1,
     flexDirection: 'row',
@@ -809,7 +823,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: 15,
-    borderRadius: 8,
+    borderRadius: 16,
     borderWidth: 1,
     borderStyle: 'dashed',
   },
@@ -843,7 +857,7 @@ const styles = StyleSheet.create({
   nextButton: {
     backgroundColor: '#F27121',
     padding: 15,
-    borderRadius: 8,
+    borderRadius: 20,
     alignItems: 'center',
     marginTop: 20,
   },
@@ -857,7 +871,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#FFF3E0',
     padding: 12,
-    borderRadius: 8,
+    borderRadius: 16,
     marginBottom: 20,
   },
   typeBannerText: {
@@ -888,7 +902,7 @@ const styles = StyleSheet.create({
   checkbox: {
     width: 20,
     height: 20,
-    borderRadius: 4,
+    borderRadius: 6,
     borderWidth: 2,
     borderColor: '#F27121',
     marginRight: 8,
@@ -908,7 +922,7 @@ const styles = StyleSheet.create({
   allowanceInput: {
     flex: 1,
     padding: 12,
-    borderRadius: 8,
+    borderRadius: 16,
     borderWidth: 1,
   },
   allowanceLabel: {
@@ -927,7 +941,7 @@ const styles = StyleSheet.create({
   draftButton: {
     flex: 1,
     padding: 15,
-    borderRadius: 8,
+    borderRadius: 20,
     borderWidth: 1,
     alignItems: 'center',
   },
@@ -939,7 +953,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#2196F3',
     padding: 15,
-    borderRadius: 8,
+    borderRadius: 20,
     alignItems: 'center',
   },
   submitButtonDisabled: {
@@ -959,13 +973,13 @@ const styles = StyleSheet.create({
   dropdownModal: {
     width: '80%',
     maxWidth: 300,
-    borderRadius: 12,
+    borderRadius: 24,
     padding: 10,
-    elevation: 5,
+    elevation: 2,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 15,
   },
   dropdownOption: {
     flexDirection: 'row',
@@ -980,7 +994,7 @@ const styles = StyleSheet.create({
   datePickerModal: {
     width: '90%',
     maxWidth: 400,
-    borderRadius: 16,
+    borderRadius: 28,
     padding: 20,
     backgroundColor: '#000000',
     elevation: 10,

@@ -2,7 +2,6 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useFocusEffect } from '@react-navigation/native';
-import * as DocumentPicker from 'expo-document-picker';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import {
@@ -13,6 +12,7 @@ import CustomAlert from '../../components/CustomAlert';
 import { getBackendUrl, SUPABASE_ANON_KEY, SUPABASE_URL } from '../../constants/backend-config';
 import { useCustomAlert } from '../../hooks/useCustomAlert';
 import { useTheme } from './ThemeContext';
+import Reanimated, { useAnimatedStyle, useSharedValue, withTiming, Easing, interpolate } from 'react-native-reanimated';
 
 export default function UserAttendanceCorrection() {
   const router = useRouter();
@@ -38,8 +38,6 @@ export default function UserAttendanceCorrection() {
   const [endDate, setEndDate] = useState(new Date());
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [showEndPicker, setShowEndPicker] = useState(false);
-  const [attachmentUri, setAttachmentUri] = useState<string | null>(null);
-  const [attachmentName, setAttachmentName] = useState<string | null>(null);
   
   // Step 2 & 3 State
   const [details, setDetails] = useState<any[]>([]);
@@ -62,6 +60,17 @@ export default function UserAttendanceCorrection() {
     accent: '#F27121',
     surface: isDark ? '#0F172A' : '#F1F5F9'
   };
+
+  // Entrance animations
+  const fadeAnim = useSharedValue(0);
+  React.useEffect(() => {
+    fadeAnim.value = withTiming(1, { duration: 800, easing: Easing.out(Easing.exp) });
+  }, []);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: fadeAnim.value,
+    transform: [{ translateY: interpolate(fadeAnim.value, [0, 1], [20, 0]) }]
+  }));
 
   const fetchHistory = async () => {
     try {
@@ -137,16 +146,32 @@ export default function UserAttendanceCorrection() {
 
       const dList = [];
       let curr = new Date(startDate);
-      while (curr <= endDate) {
-         const dateString = curr.toISOString().split('T')[0];
+      curr.setHours(0, 0, 0, 0);
+      const endD = new Date(endDate);
+      endD.setHours(0, 0, 0, 0);
+
+      while (curr <= endD) {
+         const y = curr.getFullYear();
+         const m = String(curr.getMonth() + 1).padStart(2, '0');
+         const d = String(curr.getDate()).padStart(2, '0');
+         const dateString = `${y}-${m}-${d}`;
+
+         const record = attHistory.find(r => r.date === dateString);
+         
+         const bStart = record && record.timein ? record.timein.substring(0, 5) : '--:--';
+         const bEnd = record && record.timeout ? record.timeout.substring(0, 5) : '--:--';
+         
+         const aStart = bStart !== '--:--' ? bStart : '08:00';
+         const aEnd = bEnd !== '--:--' ? bEnd : '17:00';
+
          dList.push({
             id: curr.getTime(),
             date: new Date(curr),
-            beforeStart: '08:00',
-            beforeEnd: '06:00', 
-            afterStart: '08:00:00',
-            afterEnd: '18:00:00',
-            shift: 'SHIFTSPV',
+            beforeStart: bStart,
+            beforeEnd: bEnd, 
+            afterStart: `${aStart}:00`,
+            afterEnd: `${aEnd}:00`,
+            shift: 'SHIFTSPV [08:00 - 17:00]',
             reason: '',
             changed: false
          });
@@ -249,31 +274,6 @@ export default function UserAttendanceCorrection() {
       const userId = await AsyncStorage.getItem('userId');
       if (!userId) return;
 
-      let finalAttachmentUrl = null;
-      if (attachmentUri) {
-         try {
-           const formData = new FormData();
-           formData.append('file', {
-              uri: attachmentUri,
-              name: attachmentName || 'document.pdf',
-              type: 'application/octet-stream'
-           } as any);
-           formData.append('type', 'file');
-           
-           const uploadRes = await fetch(`${backendUrl}/upload-chat-media.php`, {
-              method: 'POST',
-              body: formData,
-              headers: { 'ngrok-skip-browser-warning': 'true' }
-           });
-           const uploadData = await uploadRes.json();
-           if (uploadData.ok) {
-              finalAttachmentUrl = uploadData.media_url;
-           }
-         } catch (err) {
-           console.log("Failed to upload attachment", err);
-         }
-      }
-
       for (let item of edited) {
         const payload = {
           user_id: userId,
@@ -283,8 +283,7 @@ export default function UserAttendanceCorrection() {
           before_start_time: item.beforeStart === '--:--' ? null : (item.beforeStart + ':00'),
           before_end_time: item.beforeEnd === '--:--' ? null : (item.beforeEnd + ':00'),
           after_start_time: item.afterStart,
-          after_end_time: item.afterEnd,
-          attachment: finalAttachmentUrl
+          after_end_time: item.afterEnd
         };
 
         await fetch(`${backendUrl}/submit-attendance-correction.php?action=create`, {
@@ -313,27 +312,11 @@ export default function UserAttendanceCorrection() {
 
   const formatDate = (d: Date) => d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 
-  const handleSelectFile = async () => {
-    try {
-      const result = await DocumentPicker.getDocumentAsync({
-        type: ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
-        copyToCacheDirectory: false,
-      });
-
-      if (!result.canceled && result.assets && result.assets.length > 0) {
-        setAttachmentUri(result.assets[0].uri);
-        setAttachmentName(result.assets[0].name);
-      }
-    } catch (err) {
-      console.log('Error picking document', err);
-    }
-  };
-
   // ------------------------------------------------------------------------------------------------
   // RENDER STEP 1
   // ------------------------------------------------------------------------------------------------
   const renderStep1 = () => (
-    <View style={styles.stepContainer}>
+    <Reanimated.View style={[styles.stepContainer, animatedStyle]}>
       <Text style={[styles.sectionTitle, dyn.sub]}>Request For</Text>
       <View style={[styles.inputBox, dyn.card, dyn.border]}>
         <Text style={[styles.inputText, dyn.text]} numberOfLines={1}>{employee}</Text>
@@ -385,37 +368,18 @@ export default function UserAttendanceCorrection() {
            }}
          />
       )}
-
-      <Text style={[styles.label, dyn.sub, {marginTop: 20}]}>Attachment</Text>
-      <TouchableOpacity style={[styles.attachmentBox, { borderColor: dyn.border.borderColor }]} onPress={handleSelectFile}>
-         {attachmentName ? (
-            <View style={{flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 10}}>
-                <Ionicons name="document-text" size={20} color={dyn.accent} />
-                <Text style={[styles.attachmentText, { color: dyn.accent }]} numberOfLines={1} ellipsizeMode="middle">
-                  {attachmentName}
-                </Text>
-            </View>
-         ) : (
-            <>
-               <Ionicons name="add" size={20} color={dyn.accent} />
-               <Text style={[styles.attachmentText, { color: dyn.accent }]}>Select File</Text>
-            </>
-         )}
-      </TouchableOpacity>
-      <Text style={[styles.attachmentHint, dyn.sub]}>File Supported: doc,docx,pdf,xls,xlsx</Text>
-
       <View style={styles.flexSpacer} />
       <TouchableOpacity style={[styles.btnPrimary, { backgroundColor: dyn.accent }]} onPress={handleNext}>
          <Text style={styles.btnPrimaryText}>Next</Text>
       </TouchableOpacity>
-    </View>
+    </Reanimated.View>
   );
 
   // ------------------------------------------------------------------------------------------------
   // RENDER STEP 2
   // ------------------------------------------------------------------------------------------------
   const renderStep2 = () => (
-    <View style={styles.stepContainer}>
+    <Reanimated.View style={[styles.stepContainer, animatedStyle]}>
       <Text style={[styles.label, dyn.sub]}>Request For</Text>
       <View style={styles.reqCard}>
          {profilePicture ? (
@@ -491,7 +455,7 @@ export default function UserAttendanceCorrection() {
             {loading ? <ActivityIndicator color="#FFF" /> : <Text style={styles.btnPrimaryText}>Submit</Text>}
          </TouchableOpacity>
       </View>
-    </View>
+    </Reanimated.View>
   );
 
   // ------------------------------------------------------------------------------------------------
@@ -500,7 +464,7 @@ export default function UserAttendanceCorrection() {
   const renderStep3 = () => {
     const actDate = activeItem ? formatDate(activeItem.date) : '';
     return (
-      <View style={[styles.stepContainer, { paddingHorizontal: 0, paddingTop: 0 }]}>
+      <Reanimated.View style={[styles.stepContainer, { paddingHorizontal: 0, paddingTop: 0 }, animatedStyle]}>
         <View style={[styles.header3, { backgroundColor: dyn.accent }]}>
            <TouchableOpacity onPress={() => setStep(2)} style={styles.headBtn}>
               <Ionicons name="arrow-back" size={24} color="#FFF" />
@@ -587,14 +551,14 @@ export default function UserAttendanceCorrection() {
         </ScrollView>
 
         <View style={styles.s3ActionRow}>
-           <TouchableOpacity style={[styles.s3Btn, { backgroundColor: dyn.accent, borderBottomLeftRadius: 16 }]} onPress={handleUpdate}>
+           <TouchableOpacity style={[styles.s3Btn, { backgroundColor: dyn.accent }]} onPress={handleUpdate}>
               <Text style={styles.s3BtnText}>Update</Text>
            </TouchableOpacity>
-           <TouchableOpacity style={[styles.s3Btn, { backgroundColor: '#F25C54', borderBottomRightRadius: 16 }]} onPress={() => handleDeleteItem(activeItem.id)}>
+           <TouchableOpacity style={[styles.s3Btn, { backgroundColor: '#F25C54' }]} onPress={() => handleDeleteItem(activeItem.id)}>
               <Text style={styles.s3BtnText}>Delete</Text>
            </TouchableOpacity>
         </View>
-      </View>
+      </Reanimated.View>
     );
   };
 
@@ -688,7 +652,7 @@ const styles = StyleSheet.create({
   // Step 1
   sectionTitle: { fontSize: 13, fontWeight: '600', marginBottom: 8, marginTop: 10 },
   inputBox: { 
-    height: 52, borderRadius: 8, borderWidth: 1, paddingHorizontal: 15,
+    height: 52, borderRadius: 16, borderWidth: 1, paddingHorizontal: 15,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'
   },
   inputText: { fontSize: 15 },
@@ -709,7 +673,7 @@ const styles = StyleSheet.create({
   attachmentHint: { fontSize: 12, marginTop: 8 },
   
   flexSpacer: { flex: 1 },
-  btnPrimary: { height: 50, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+  btnPrimary: { height: 50, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
   btnPrimaryText: { color: '#FFF', fontSize: 16, fontWeight: 'bold' },
 
   // Step 2
@@ -722,7 +686,8 @@ const styles = StyleSheet.create({
   dateBig: { fontSize: 18, fontWeight: 'bold' },
   
   detailItem: { 
-    flexDirection: 'row', borderRadius: 8, borderWidth: 1, padding: 15, marginBottom: 15, alignItems: 'center'
+    flexDirection: 'row', borderRadius: 24, borderWidth: 1, padding: 20, marginBottom: 16, alignItems: 'center',
+    elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 15
   },
   diLeft: { flex: 2 },
   diDate: { fontSize: 15, fontWeight: 'bold', marginBottom: 4 },
@@ -735,9 +700,9 @@ const styles = StyleSheet.create({
   diBtn: { padding: 5 },
 
   bottomButtonsRow: { flexDirection: 'row', gap: 15, marginTop: 10 },
-  btnSecondary: { flex: 1, height: 50, borderRadius: 8, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  btnSecondary: { flex: 1, height: 50, borderRadius: 20, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   btnSecondaryText: { fontSize: 16, fontWeight: 'bold' },
-  btnPrimarySplit: { flex: 1, height: 50, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+  btnPrimarySplit: { flex: 1, height: 50, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
 
   // Step 3
   header3: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, height: 60, elevation: 4, shadowColor: '#000', shadowOffset: {width: 0, height: 2}, shadowOpacity: 0.1, shadowRadius: 3 },

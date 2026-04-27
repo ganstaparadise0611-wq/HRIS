@@ -10,6 +10,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { getBackendUrl } from '../../constants/backend-config';
 import { recheckNetwork } from '../../constants/network-detector';
 import { useTheme } from './ThemeContext';
+import Reanimated, { useAnimatedStyle, useSharedValue, withTiming, Easing, interpolate } from 'react-native-reanimated';
 
 const { width } = Dimensions.get('window');
 
@@ -82,6 +83,17 @@ export default function UserAttendance() {
     border: { borderColor: colors.border }
   };
 
+  // Entrance animations
+  const fadeAnim = useSharedValue(0);
+  React.useEffect(() => {
+    fadeAnim.value = withTiming(1, { duration: 800, easing: Easing.out(Easing.exp) });
+  }, []);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: fadeAnim.value,
+    transform: [{ translateY: interpolate(fadeAnim.value, [0, 1], [20, 0]) }]
+  }));
+
   // ── Fetch shift schedule on mount ─────────────────────────────────────────
   useEffect(() => {
     const fetchShift = async () => {
@@ -121,12 +133,36 @@ export default function UserAttendance() {
   useEffect(() => {
     const checkStatus = async () => {
       try {
+        const userId = await AsyncStorage.getItem('userId');
+        if (userId) {
+          const backendUrl = getBackendUrl();
+          const res = await fetch(`${backendUrl}/check-attendance-status.php?user_id=${userId}`, {
+            headers: { 'ngrok-skip-browser-warning': 'true' }
+          });
+          const data = await res.json();
+          if (data.ok && data.clocked_in) {
+            setIsClockedIn(true);
+            const [h, m] = data.timein.split(':');
+            const hour = parseInt(h, 10);
+            const ampm = hour >= 12 ? 'PM' : 'AM';
+            const hour12 = hour % 12 || 12;
+            const timeStr = `${hour12.toString().padStart(2, '0')}:${m} ${ampm}`;
+            setClockInTime(timeStr);
+            await AsyncStorage.setItem('userClockInTime', timeStr);
+          } else {
+            setIsClockedIn(false);
+            setClockInTime("");
+            await AsyncStorage.removeItem('userClockInTime');
+          }
+        }
+      } catch (e) { 
+        console.log("Failed to load status from backend, checking local storage...");
         const savedTime = await AsyncStorage.getItem('userClockInTime');
         if (savedTime) {
           setIsClockedIn(true);
           setClockInTime(savedTime);
         }
-      } catch (e) { console.log("Failed to load status"); } 
+      } 
       finally { setIsLoading(false); }
     };
     checkStatus();
@@ -620,6 +656,7 @@ export default function UserAttendance() {
 
       {/* CENTER */}
       <View style={[styles.centerStage, !isClockedIn && styles.centerStageCentered]}>
+        <Reanimated.View style={[animatedStyle, { flex: 1, width: '100%', justifyContent: !isClockedIn ? 'center' : 'flex-start', alignItems: !isClockedIn ? 'center' : 'stretch' }]}>
         {isClockedIn ? (
           <ScrollView
             style={styles.clockedInScroll}
@@ -738,6 +775,7 @@ export default function UserAttendance() {
             </View>
           </View>
         )}
+        </Reanimated.View>
       </View>
 
       {/* FOOTER */}
@@ -868,7 +906,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(242,113,33,0.10)',
-    borderRadius: 12,
+    borderRadius: 16,
     paddingHorizontal: 14,
     paddingVertical: 8,
     marginBottom: 18,
@@ -891,7 +929,7 @@ const styles = StyleSheet.create({
   verifyingText: { color: 'white', marginTop: 10, fontWeight: 'bold' },
 
   // Status card
-  statusCard: { alignItems: 'center', padding: 24, borderRadius: 20, marginBottom: 16, elevation: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.12, shadowRadius: 8 },
+  statusCard: { alignItems: 'center', padding: 24, borderRadius: 28, marginBottom: 16, elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 15 },
   statusIconWrapper: { width: 100, height: 100, borderRadius: 50, justifyContent: 'center', alignItems: 'center', marginBottom: 12 },
   statusTitle: { fontSize: 16, fontWeight: '800', letterSpacing: 1.5 },
   statusTime: { fontSize: 44, fontWeight: 'bold', marginTop: 8 },
@@ -900,7 +938,7 @@ const styles = StyleSheet.create({
   // Late / On-Time badge
   timingBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, marginTop: 10, marginBottom: 4 },
   timingBadgeText: { fontSize: 12, fontWeight: '700' },
-  mapCard: { borderRadius: 20, overflow: 'hidden', marginTop: 12, marginBottom: 20, elevation: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.12, shadowRadius: 8 },
+  mapCard: { borderRadius: 28, overflow: 'hidden', marginTop: 12, marginBottom: 20, elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 15 },
   mapSurface: { height: MAP_HEIGHT, width: '100%', position: 'relative' },
   mapWrapper: { height: MAP_HEIGHT, width: '100%' },
   // Map fills inner surface area inside the card
@@ -922,7 +960,7 @@ const styles = StyleSheet.create({
   mapPlaceholderText: { marginTop: 8, fontSize: 13, textAlign: 'center' },
   retryLocationButton: { marginTop: 12, paddingHorizontal: 20, paddingVertical: 8, backgroundColor: '#F27121', borderRadius: 10 },
   retryLocationText: { color: '#FFF', fontWeight: '600', fontSize: 14 },
-  footer: { padding: 30, borderTopLeftRadius: 30, borderTopRightRadius: 30, elevation: 10, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 5 },
+  footer: { padding: 30, borderTopLeftRadius: 32, borderTopRightRadius: 32, elevation: 10, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 15 },
   footerTimeBlock: { alignItems: 'center', marginBottom: 20 },
   footerDate: { fontSize: 13 },
   requirementSteps: { flexDirection: 'row', justifyContent: 'center', marginBottom: 16 },
@@ -930,7 +968,7 @@ const styles = StyleSheet.create({
   stepDone: { opacity: 1 },
   stepText: { fontSize: 13, marginLeft: 6, fontWeight: '600' },
   footerTime: { fontSize: 40, fontWeight: 'bold' },
-  bigButton: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', padding: 20, borderRadius: 15 },
+  bigButton: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', padding: 20, borderRadius: 20 },
   buttonText: { color: 'white', fontSize: 18, fontWeight: 'bold' },
   
   // Modal Styles

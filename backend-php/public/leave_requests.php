@@ -70,6 +70,9 @@ if ($action === 'create') {
     $reason = $body['reason'] ?? null;
     $start_date = $body['start_date'] ?? null;
     $end_date = $body['end_date'] ?? null;
+    $is_full_day = $body['is_full_day'] ?? true;
+    $is_draft = $body['is_draft'] ?? false;
+    $has_attachment = $body['has_attachment'] ?? false;
     
     if (empty($emp_id) || empty($leave_type) || empty($reason)) {
         http_response_code(400);
@@ -81,7 +84,12 @@ if ($action === 'create') {
         'emp_id' => $emp_id,
         'leave_type' => $leave_type,
         'reason' => $reason,
+        'is_full_day' => (bool)$is_full_day,
+        'is_draft' => (bool)$is_draft,
     ];
+    
+    // Set status based on is_draft
+    $insertData['application_status'] = $is_draft ? 'draft' : 'pending';
     
     if ($start_date !== null) {
         $insertData['start_date'] = $start_date;
@@ -109,13 +117,15 @@ if ($action === 'create') {
         exit;
     }
     
-    // Push notification: confirm submission to the requesting employee
-    notify_users(
-        [(int)$emp_id],
-        '📋 Leave Request Submitted',
-        "Your {$leave_type} leave request has been submitted and is pending approval.",
-        ['type' => 'leave_request']
-    );
+    // Push notification only if not a draft
+    if (!$is_draft) {
+        notify_users(
+            [(int)$emp_id],
+            '📋 Leave Request Submitted',
+            "Your {$leave_type} leave request has been submitted and is pending approval.",
+            ['type' => 'leave_request']
+        );
+    }
 
     echo json_encode([
         'ok' => true,
@@ -140,6 +150,8 @@ if ($action === 'update') {
     $reason = $body['reason'] ?? null;
     $start_date = $body['start_date'] ?? null;
     $end_date = $body['end_date'] ?? null;
+    $is_full_day = $body['is_full_day'] ?? null;
+    $is_draft = $body['is_draft'] ?? false;
 
     if (!$leave_type || !$reason) {
         http_response_code(400);
@@ -157,6 +169,7 @@ if ($action === 'update') {
     $updateData = [
         'leave_type' => $leave_type,
         'reason' => $reason,
+        'updated_at' => date('c'), // ISO 8601 timestamp
     ];
 
     if ($start_date !== null) {
@@ -164,6 +177,13 @@ if ($action === 'update') {
     }
     if ($end_date !== null) {
         $updateData['end_date'] = $end_date;
+    }
+    if ($is_full_day !== null) {
+        $updateData['is_full_day'] = (bool)$is_full_day;
+    }
+    if ($is_draft !== null) {
+        $updateData['is_draft'] = (bool)$is_draft;
+        $updateData['application_status'] = $is_draft ? 'draft' : 'pending';
     }
 
     [$status, $result, $err] = supabase_request(
