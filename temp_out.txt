@@ -1,0 +1,537 @@
+--- TSX Interface ---
+  // Exact 90 columns mapped
+  absence_due_to_suspension: number;
+  absence_without_official_leave: number;
+  absent: number;
+  absent_due_to_half_day: number;
+  bereavement_half_day_1: number;
+  bereavement_half_day_2: number;
+  birthday_leave: number;
+  break_due_to_lwph1: number;
+  break_due_to_lwph2: number;
+  early_in: number;
+  early_out: number;
+  emergency_leave_full_day: number;
+  emergency_leave_half_day_1: number;
+  emergency_leave_half_day_2: number;
+  holiday: number;
+  inhouse_training: number;
+  late_in: number;
+  late_out: number;
+  leave_without_pay_full_day: number;
+  leave_without_pay_half_day_1: number;
+  leave_without_pay_half_day_2: number;
+  leave_in_lieu: number;
+  maternity_cs_full_day: number;
+  maternity_cs_half_day_1: number;
+  maternity_cs_half_day_2: number;
+  maternity_normal_full_day: number;
+  maternity_normal_half_day_1: number;
+  maternity_normal_half_day_2: number;
+  maternity_normal_cs: number;
+  maternity_normal_cs_less_7: number;
+  solo_parent_leave: number;
+  miscarriage_leave: number;
+  no_swipe_in: number;
+  no_swipe_out: number;
+  no_swipe_in_with_half_day_leave_filing: number;
+  no_swipe_out_with_half_day_leave_filing: number;
+  off_on_duty: number;
+  present_on_duty_2: number;
+  present_on_duty_3: number;
+  special_on_duty: number;
+  on_duty_half: number;
+  overtime_public_holiday: number;
+  overtime_regular: number;
+  paternity_leave_full_day: number;
+  paternity_leave_half_day_1: number;
+  paternity_leave_half_day_2: number;
+  penalty_no_in: number;
+  penalty_no_out: number;
+  present_full_day: number;
+  present_half_day_1: number;
+  present_half_day_2: number;
+  present_off: number;
+  present_off_nsi: number;
+  present_off_nso: number;
+  present_off_special: number;
+  present_3_regular_holiday: number;
+  service_incentive_leave_full_day: number;
+  service_incentive_leave_half_day_1: number;
+  service_incentive_leave_half_day_2: number;
+  sick_leave_full_day: number;
+  sick_leave_half_day_1: number;
+  sick_leave_half_day_2: number;
+  sick_leave_manager_full_day: number;
+  sick_leave_manager_half_day_1: number;
+  sick_leave_manager_half_day_2: number;
+  solo_parent_leave_full_day: number;
+  solo_parent_leave_half_day_1: number;
+  solo_parent_leave_half_day_2: number;
+  special_leave_for_women_ra_9710_full_day: number;
+  special_leave_for_women_half_day_1: number;
+  special_leave_for_women_half_day_2: number;
+  suspension: number;
+  training: number;
+  unproductive: number;
+  vacation_leave_full_day: number;
+  vacation_leave_half_day_1: number;
+  vacation_leave_half_day_2: number;
+  vacation_leave_manager_full_day: number;
+  vacation_leave_manager_half_day_1: number;
+  vacation_leave_manager_half_day_2: number;
+  vawc_leave_ra_9262_full_day: number;
+  vawc_leave_half_day_1: number;
+  vawc_leave_half_day_2: number;
+  total_activity: number;
+
+--- TSX Columns ---
+const COLUMNS: { key: keyof ReportRow; label: string; group: string }[] = [
+  { key: 'absence_due_to_suspension', label: 'Absence Due to Suspension', group: 'Absences' },
+  { key: 'absence_without_official_leave', label: 'Absence Without Official Leave', group: 'Leaves' },
+  { key: 'absent', label: 'Absent', group: 'Absences' },
+  { key: 'absent_due_to_half_day', label: 'Absent due to Half Day', group: 'Absences' },
+  { key: 'bereavement_half_day_1', label: 'Bereavement Half Day 1', group: 'Other' },
+  { key: 'bereavement_half_day_2', label: 'Bereavement Half Day 2', group: 'Other' },
+  { key: 'birthday_leave', label: 'Birthday Leave', group: 'Leaves' },
+  { key: 'break_due_to_lwph1', label: 'Break Due to LWPH1', group: 'Time Records' },
+  { key: 'break_due_to_lwph2', label: 'Break Due to LWPH2', group: 'Time Records' },
+  { key: 'early_in', label: 'Early In', group: 'Time Records' },
+  { key: 'early_out', label: 'Early Out', group: 'Time Records' },
+  { key: 'emergency_leave_full_day', label: 'Emergency Leave (Full Day)', group: 'Leaves' },
+  { key: 'emergency_leave_half_day_1', label: 'Emergency Leave Half Day 1', group: 'Leaves' },
+  { key: 'emergency_leave_half_day_2', label: 'Emergency Leave Half Day 2', group: 'Leaves' },
+  { key: 'holiday', label: 'Holiday', group: 'Presence' },
+  { key: 'inhouse_training', label: 'Inhouse Training', group: 'Other' },
+  { key: 'late_in', label: 'Late In', group: 'Time Records' },
+  { key: 'late_out', label: 'Late Out', group: 'Time Records' },
+  { key: 'leave_without_pay_full_day', label: 'Leave Without Pay (Full Day)', group: 'Leaves' },
+  { key: 'leave_without_pay_half_day_1', label: 'Leave Without Pay Half Day 1', group: 'Leaves' },
+  { key: 'leave_without_pay_half_day_2', label: 'Leave Without Pay Half Day 2', group: 'Leaves' },
+  { key: 'leave_in_lieu', label: 'Leave in Lieu', group: 'Leaves' },
+  { key: 'maternity_cs_full_day', label: 'Maternity CS (Full Day)', group: 'Special Leaves' },
+  { key: 'maternity_cs_half_day_1', label: 'Maternity CS Half Day 1', group: 'Special Leaves' },
+  { key: 'maternity_cs_half_day_2', label: 'Maternity CS Half Day 2', group: 'Special Leaves' },
+  { key: 'maternity_normal_full_day', label: 'Maternity Normal (Full Day)', group: 'Special Leaves' },
+  { key: 'maternity_normal_half_day_1', label: 'Maternity Normal Half Day 1', group: 'Special Leaves' },
+  { key: 'maternity_normal_half_day_2', label: 'Maternity Normal Half Day 2', group: 'Special Leaves' },
+  { key: 'maternity_normal_cs', label: 'Maternity Normal/CS', group: 'Special Leaves' },
+  { key: 'maternity_normal_cs_less_7', label: 'Maternity Normal/CS Less 7', group: 'Special Leaves' },
+  { key: 'solo_parent_leave', label: 'Solo Parent Leave', group: 'Special Leaves' },
+  { key: 'miscarriage_leave', label: 'Miscarriage Leave', group: 'Leaves' },
+  { key: 'no_swipe_in', label: 'No Swipe In', group: 'Time Records' },
+  { key: 'no_swipe_out', label: 'No Swipe Out', group: 'Time Records' },
+  { key: 'no_swipe_in_with_half_day_leave_filing', label: 'No Swipe In with Half Day Leave Filing', group: 'Time Records' },
+  { key: 'no_swipe_out_with_half_day_leave_filing', label: 'No Swipe Out with Half Day Leave Filing', group: 'Time Records' },
+  { key: 'off_on_duty', label: 'Off On Duty', group: 'Presence' },
+  { key: 'present_on_duty_2', label: 'Present On Duty 2', group: 'Presence' },
+  { key: 'present_on_duty_3', label: 'Present On Duty 3', group: 'Presence' },
+  { key: 'special_on_duty', label: 'Special On Duty', group: 'Presence' },
+  { key: 'on_duty_half', label: 'On Duty Half', group: 'Presence' },
+  { key: 'overtime_public_holiday', label: 'Overtime (Public Holiday)', group: 'Overtime' },
+  { key: 'overtime_regular', label: 'Overtime (Regular)', group: 'Overtime' },
+  { key: 'paternity_leave_full_day', label: 'Paternity Leave (Full Day)', group: 'Special Leaves' },
+  { key: 'paternity_leave_half_day_1', label: 'Paternity Leave Half Day 1', group: 'Special Leaves' },
+  { key: 'paternity_leave_half_day_2', label: 'Paternity Leave Half Day 2', group: 'Special Leaves' },
+  { key: 'penalty_no_in', label: 'Penalty No In', group: 'Time Records' },
+  { key: 'penalty_no_out', label: 'Penalty No Out', group: 'Time Records' },
+  { key: 'present_full_day', label: 'Present (Full Day)', group: 'Presence' },
+  { key: 'present_half_day_1', label: 'Present Half Day 1', group: 'Presence' },
+  { key: 'present_half_day_2', label: 'Present Half Day 2', group: 'Presence' },
+  { key: 'present_off', label: 'Present OFF', group: 'Presence' },
+  { key: 'present_off_nsi', label: 'Present OFF NSI', group: 'Presence' },
+  { key: 'present_off_nso', label: 'Present OFF NSO', group: 'Presence' },
+  { key: 'present_off_special', label: 'Present OFF Special', group: 'Presence' },
+  { key: 'present_3_regular_holiday', label: 'Present 3 Regular Holiday', group: 'Presence' },
+  { key: 'service_incentive_leave_full_day', label: 'Service Incentive Leave (Full Day)', group: 'Leaves' },
+  { key: 'service_incentive_leave_half_day_1', label: 'Service Incentive Leave Half Day 1', group: 'Leaves' },
+  { key: 'service_incentive_leave_half_day_2', label: 'Service Incentive Leave Half Day 2', group: 'Leaves' },
+  { key: 'sick_leave_full_day', label: 'Sick Leave (Full Day)', group: 'Leaves' },
+  { key: 'sick_leave_half_day_1', label: 'Sick Leave Half Day 1', group: 'Leaves' },
+  { key: 'sick_leave_half_day_2', label: 'Sick Leave Half Day 2', group: 'Leaves' },
+  { key: 'sick_leave_manager_full_day', label: 'Sick Leave Manager (Full Day)', group: 'Leaves' },
+  { key: 'sick_leave_manager_half_day_1', label: 'Sick Leave Manager Half Day 1', group: 'Leaves' },
+  { key: 'sick_leave_manager_half_day_2', label: 'Sick Leave Manager Half Day 2', group: 'Leaves' },
+  { key: 'solo_parent_leave_full_day', label: 'Solo Parent Leave (Full Day)', group: 'Special Leaves' },
+  { key: 'solo_parent_leave_half_day_1', label: 'Solo Parent Leave Half Day 1', group: 'Special Leaves' },
+  { key: 'solo_parent_leave_half_day_2', label: 'Solo Parent Leave Half Day 2', group: 'Special Leaves' },
+  { key: 'special_leave_for_women_ra_9710_full_day', label: 'Special Leave for Women (RA 9710 Full Day)', group: 'Special Leaves' },
+  { key: 'special_leave_for_women_half_day_1', label: 'Special Leave for Women Half Day 1', group: 'Special Leaves' },
+  { key: 'special_leave_for_women_half_day_2', label: 'Special Leave for Women Half Day 2', group: 'Special Leaves' },
+  { key: 'suspension', label: 'Suspension', group: 'Absences' },
+  { key: 'training', label: 'Training', group: 'Other' },
+  { key: 'unproductive', label: 'Unproductive', group: 'Other' },
+  { key: 'vacation_leave_full_day', label: 'Vacation Leave (Full Day)', group: 'Leaves' },
+  { key: 'vacation_leave_half_day_1', label: 'Vacation Leave Half Day 1', group: 'Leaves' },
+  { key: 'vacation_leave_half_day_2', label: 'Vacation Leave Half Day 2', group: 'Leaves' },
+  { key: 'vacation_leave_manager_full_day', label: 'Vacation Leave Manager (Full Day)', group: 'Leaves' },
+  { key: 'vacation_leave_manager_half_day_1', label: 'Vacation Leave Manager Half Day 1', group: 'Leaves' },
+  { key: 'vacation_leave_manager_half_day_2', label: 'Vacation Leave Manager Half Day 2', group: 'Leaves' },
+  { key: 'vawc_leave_ra_9262_full_day', label: 'VAWC Leave (RA 9262 Full Day)', group: 'Special Leaves' },
+  { key: 'vawc_leave_half_day_1', label: 'VAWC Leave Half Day 1', group: 'Special Leaves' },
+  { key: 'vawc_leave_half_day_2', label: 'VAWC Leave Half Day 2', group: 'Special Leaves' },
+  { key: 'total_activity', label: 'Total Activity', group: 'Total' },
+];
+
+--- TSX CSV ---
+    const header1 = [
+      'No.', 'Emp No', 'Employee Name', 'Position', 'Work Location', 'Work Location Name',
+      'Absence Due to Suspension',
+      'Absence Without Official Leave',
+      'Absent',
+      'Absent due to Half Day',
+      'Bereavement Half Day 1',
+      'Bereavement Half Day 2',
+      'Birthday Leave',
+      'Break Due to LWPH1',
+      'Break Due to LWPH2',
+      'Early In',
+      'Early Out',
+      'Emergency Leave (Full Day)',
+      'Emergency Leave Half Day 1',
+      'Emergency Leave Half Day 2',
+      'Holiday',
+      'Inhouse Training',
+      'Late In',
+      'Late Out',
+      'Leave Without Pay (Full Day)',
+      'Leave Without Pay Half Day 1',
+      'Leave Without Pay Half Day 2',
+      'Leave in Lieu',
+      'Maternity CS (Full Day)',
+      'Maternity CS Half Day 1',
+      'Maternity CS Half Day 2',
+      'Maternity Normal (Full Day)',
+      'Maternity Normal Half Day 1',
+      'Maternity Normal Half Day 2',
+      'Maternity Normal/CS',
+      'Maternity Normal/CS Less 7',
+      'Solo Parent Leave',
+      'Miscarriage Leave',
+      'No Swipe In',
+      'No Swipe Out',
+      'No Swipe In with Half Day Leave Filing',
+      'No Swipe Out with Half Day Leave Filing',
+      'Off On Duty',
+      'Present On Duty 2',
+      'Present On Duty 3',
+      'Special On Duty',
+      'On Duty Half',
+      'Overtime (Public Holiday)',
+      'Overtime (Regular)',
+      'Paternity Leave (Full Day)',
+      'Paternity Leave Half Day 1',
+      'Paternity Leave Half Day 2',
+      'Penalty No In',
+      'Penalty No Out',
+      'Present (Full Day)',
+      'Present Half Day 1',
+      'Present Half Day 2',
+      'Present OFF',
+      'Present OFF NSI',
+      'Present OFF NSO',
+      'Present OFF Special',
+      'Present 3 Regular Holiday',
+      'Service Incentive Leave (Full Day)',
+      'Service Incentive Leave Half Day 1',
+      'Service Incentive Leave Half Day 2',
+      'Sick Leave (Full Day)',
+      'Sick Leave Half Day 1',
+      'Sick Leave Half Day 2',
+      'Sick Leave Manager (Full Day)',
+      'Sick Leave Manager Half Day 1',
+      'Sick Leave Manager Half Day 2',
+      'Solo Parent Leave (Full Day)',
+      'Solo Parent Leave Half Day 1',
+      'Solo Parent Leave Half Day 2',
+      'Special Leave for Women (RA 9710 Full Day)',
+      'Special Leave for Women Half Day 1',
+      'Special Leave for Women Half Day 2',
+      'Suspension',
+      'Training',
+      'Unproductive',
+      'Vacation Leave (Full Day)',
+      'Vacation Leave Half Day 1',
+      'Vacation Leave Half Day 2',
+      'Vacation Leave Manager (Full Day)',
+      'Vacation Leave Manager Half Day 1',
+      'Vacation Leave Manager Half Day 2',
+      'VAWC Leave (RA 9262 Full Day)',
+      'VAWC Leave Half Day 1',
+      'VAWC Leave Half Day 2',
+      'Total Activity',
+    ].join(',');
+
+    const rows = report.map(r => [
+      r.no, `"${r.emp_number}"`, `"${r.name}"`, `"${r.position}"`, `"${r.work_location}"`, `"${r.work_location_name}"`,
+      r.absence_due_to_suspension, r.absence_without_official_leave, r.absent, r.absent_due_to_half_day, r.bereavement_half_day_1, r.bereavement_half_day_2, r.birthday_leave, r.break_due_to_lwph1, r.break_due_to_lwph2, r.early_in, r.early_out, r.emergency_leave_full_day, r.emergency_leave_half_day_1, r.emergency_leave_half_day_2, r.holiday, r.inhouse_training, r.late_in, r.late_out, r.leave_without_pay_full_day, r.leave_without_pay_half_day_1, r.leave_without_pay_half_day_2, r.leave_in_lieu, r.maternity_cs_full_day, r.maternity_cs_half_day_1, r.maternity_cs_half_day_2, r.maternity_normal_full_day, r.maternity_normal_half_day_1, r.maternity_normal_half_day_2, r.maternity_normal_cs, r.maternity_normal_cs_less_7, r.solo_parent_leave, r.miscarriage_leave, r.no_swipe_in, r.no_swipe_out, r.no_swipe_in_with_half_day_leave_filing, r.no_swipe_out_with_half_day_leave_filing, r.off_on_duty, r.present_on_duty_2, r.present_on_duty_3, r.special_on_duty, r.on_duty_half, r.overtime_public_holiday, r.overtime_regular, r.paternity_leave_full_day, r.paternity_leave_half_day_1, r.paternity_leave_half_day_2, r.penalty_no_in, r.penalty_no_out, r.present_full_day, r.present_half_day_1, r.present_half_day_2, r.present_off, r.present_off_nsi, r.present_off_nso, r.present_off_special, r.present_3_regular_holiday, r.service_incentive_leave_full_day, r.service_incentive_leave_half_day_1, r.service_incentive_leave_half_day_2, r.sick_leave_full_day, r.sick_leave_half_day_1, r.sick_leave_half_day_2, r.sick_leave_manager_full_day, r.sick_leave_manager_half_day_1, r.sick_leave_manager_half_day_2, r.solo_parent_leave_full_day, r.solo_parent_leave_half_day_1, r.solo_parent_leave_half_day_2, r.special_leave_for_women_ra_9710_full_day, r.special_leave_for_women_half_day_1, r.special_leave_for_women_half_day_2, r.suspension, r.training, r.unproductive, r.vacation_leave_full_day, r.vacation_leave_half_day_1, r.vacation_leave_half_day_2, r.vacation_leave_manager_full_day, r.vacation_leave_manager_half_day_1, r.vacation_leave_manager_half_day_2, r.vawc_leave_ra_9262_full_day, r.vawc_leave_half_day_1, r.vawc_leave_half_day_2,
+      r.total_activity,
+    ].join(','));
+
+--- PHP Vars ---
+    // ── Variables ───────────────
+    $absence_due_to_suspension = 0;
+    $absence_without_official_leave = 0;
+    $absent = 0;
+    $absent_due_to_half_day = 0;
+    $bereavement_half_day_1 = 0;
+    $bereavement_half_day_2 = 0;
+    $birthday_leave = 0;
+    $break_due_to_lwph1 = 0;
+    $break_due_to_lwph2 = 0;
+    $early_in = 0;
+    $early_out = 0;
+    $emergency_leave_full_day = 0;
+    $emergency_leave_half_day_1 = 0;
+    $emergency_leave_half_day_2 = 0;
+    $holiday = 0;
+    $inhouse_training = 0;
+    $late_in = 0;
+    $late_out = 0;
+    $leave_without_pay_full_day = 0;
+    $leave_without_pay_half_day_1 = 0;
+    $leave_without_pay_half_day_2 = 0;
+    $leave_in_lieu = 0;
+    $maternity_cs_full_day = 0;
+    $maternity_cs_half_day_1 = 0;
+    $maternity_cs_half_day_2 = 0;
+    $maternity_normal_full_day = 0;
+    $maternity_normal_half_day_1 = 0;
+    $maternity_normal_half_day_2 = 0;
+    $maternity_normal_cs = 0;
+    $maternity_normal_cs_less_7 = 0;
+    $solo_parent_leave = 0;
+    $miscarriage_leave = 0;
+    $no_swipe_in = 0;
+    $no_swipe_out = 0;
+    $no_swipe_in_with_half_day_leave_filing = 0;
+    $no_swipe_out_with_half_day_leave_filing = 0;
+    $off_on_duty = 0;
+    $present_on_duty_2 = 0;
+    $present_on_duty_3 = 0;
+    $special_on_duty = 0;
+    $on_duty_half = 0;
+    $overtime_public_holiday = 0;
+    $overtime_regular = 0;
+    $paternity_leave_full_day = 0;
+    $paternity_leave_half_day_1 = 0;
+    $paternity_leave_half_day_2 = 0;
+    $penalty_no_in = 0;
+    $penalty_no_out = 0;
+    $present_full_day = 0;
+    $present_half_day_1 = 0;
+    $present_half_day_2 = 0;
+    $present_off = 0;
+    $present_off_nsi = 0;
+    $present_off_nso = 0;
+    $present_off_special = 0;
+    $present_3_regular_holiday = 0;
+    $service_incentive_leave_full_day = 0;
+    $service_incentive_leave_half_day_1 = 0;
+    $service_incentive_leave_half_day_2 = 0;
+    $sick_leave_full_day = 0;
+    $sick_leave_half_day_1 = 0;
+    $sick_leave_half_day_2 = 0;
+    $sick_leave_manager_full_day = 0;
+    $sick_leave_manager_half_day_1 = 0;
+    $sick_leave_manager_half_day_2 = 0;
+    $solo_parent_leave_full_day = 0;
+    $solo_parent_leave_half_day_1 = 0;
+    $solo_parent_leave_half_day_2 = 0;
+    $special_leave_for_women_ra_9710_full_day = 0;
+    $special_leave_for_women_half_day_1 = 0;
+    $special_leave_for_women_half_day_2 = 0;
+    $suspension = 0;
+    $training = 0;
+    $unproductive = 0;
+    $vacation_leave_full_day = 0;
+    $vacation_leave_half_day_1 = 0;
+    $vacation_leave_half_day_2 = 0;
+    $vacation_leave_manager_full_day = 0;
+    $vacation_leave_manager_half_day_1 = 0;
+    $vacation_leave_manager_half_day_2 = 0;
+    $vawc_leave_ra_9262_full_day = 0;
+    $vawc_leave_half_day_1 = 0;
+    $vawc_leave_half_day_2 = 0;
+
+--- PHP Total ---
+    $total = 0
+        + $absence_due_to_suspension
+        + $absence_without_official_leave
+        + $absent
+        + $absent_due_to_half_day
+        + $bereavement_half_day_1
+        + $bereavement_half_day_2
+        + $birthday_leave
+        + $break_due_to_lwph1
+        + $break_due_to_lwph2
+        + $early_in
+        + $early_out
+        + $emergency_leave_full_day
+        + $emergency_leave_half_day_1
+        + $emergency_leave_half_day_2
+        + $holiday
+        + $inhouse_training
+        + $late_in
+        + $late_out
+        + $leave_without_pay_full_day
+        + $leave_without_pay_half_day_1
+        + $leave_without_pay_half_day_2
+        + $leave_in_lieu
+        + $maternity_cs_full_day
+        + $maternity_cs_half_day_1
+        + $maternity_cs_half_day_2
+        + $maternity_normal_full_day
+        + $maternity_normal_half_day_1
+        + $maternity_normal_half_day_2
+        + $maternity_normal_cs
+        + $maternity_normal_cs_less_7
+        + $solo_parent_leave
+        + $miscarriage_leave
+        + $no_swipe_in
+        + $no_swipe_out
+        + $no_swipe_in_with_half_day_leave_filing
+        + $no_swipe_out_with_half_day_leave_filing
+        + $off_on_duty
+        + $present_on_duty_2
+        + $present_on_duty_3
+        + $special_on_duty
+        + $on_duty_half
+        + $overtime_public_holiday
+        + $overtime_regular
+        + $paternity_leave_full_day
+        + $paternity_leave_half_day_1
+        + $paternity_leave_half_day_2
+        + $penalty_no_in
+        + $penalty_no_out
+        + $present_full_day
+        + $present_half_day_1
+        + $present_half_day_2
+        + $present_off
+        + $present_off_nsi
+        + $present_off_nso
+        + $present_off_special
+        + $present_3_regular_holiday
+        + $service_incentive_leave_full_day
+        + $service_incentive_leave_half_day_1
+        + $service_incentive_leave_half_day_2
+        + $sick_leave_full_day
+        + $sick_leave_half_day_1
+        + $sick_leave_half_day_2
+        + $sick_leave_manager_full_day
+        + $sick_leave_manager_half_day_1
+        + $sick_leave_manager_half_day_2
+        + $solo_parent_leave_full_day
+        + $solo_parent_leave_half_day_1
+        + $solo_parent_leave_half_day_2
+        + $special_leave_for_women_ra_9710_full_day
+        + $special_leave_for_women_half_day_1
+        + $special_leave_for_women_half_day_2
+        + $suspension
+        + $training
+        + $unproductive
+        + $vacation_leave_full_day
+        + $vacation_leave_half_day_1
+        + $vacation_leave_half_day_2
+        + $vacation_leave_manager_full_day
+        + $vacation_leave_manager_half_day_1
+        + $vacation_leave_manager_half_day_2
+        + $vawc_leave_ra_9262_full_day
+        + $vawc_leave_half_day_1
+        + $vawc_leave_half_day_2;
+
+--- PHP Push ---
+    $report[] = [
+        'no'           => $idx + 1,
+        'emp_id'       => $eid,
+        'emp_number'   => (string)$eid,
+        'name'         => $emp['name'] ?? 'Unknown',
+        'position'     => $emp['role'] ?? 'Employee',
+        'work_location'=> 'Head Office',
+        'work_location_name'=> 'Head Office',
+        
+        'absence_due_to_suspension' => $absence_due_to_suspension,
+        'absence_without_official_leave' => $absence_without_official_leave,
+        'absent' => $absent,
+        'absent_due_to_half_day' => $absent_due_to_half_day,
+        'bereavement_half_day_1' => $bereavement_half_day_1,
+        'bereavement_half_day_2' => $bereavement_half_day_2,
+        'birthday_leave' => $birthday_leave,
+        'break_due_to_lwph1' => $break_due_to_lwph1,
+        'break_due_to_lwph2' => $break_due_to_lwph2,
+        'early_in' => $early_in,
+        'early_out' => $early_out,
+        'emergency_leave_full_day' => $emergency_leave_full_day,
+        'emergency_leave_half_day_1' => $emergency_leave_half_day_1,
+        'emergency_leave_half_day_2' => $emergency_leave_half_day_2,
+        'holiday' => $holiday,
+        'inhouse_training' => $inhouse_training,
+        'late_in' => $late_in,
+        'late_out' => $late_out,
+        'leave_without_pay_full_day' => $leave_without_pay_full_day,
+        'leave_without_pay_half_day_1' => $leave_without_pay_half_day_1,
+        'leave_without_pay_half_day_2' => $leave_without_pay_half_day_2,
+        'leave_in_lieu' => $leave_in_lieu,
+        'maternity_cs_full_day' => $maternity_cs_full_day,
+        'maternity_cs_half_day_1' => $maternity_cs_half_day_1,
+        'maternity_cs_half_day_2' => $maternity_cs_half_day_2,
+        'maternity_normal_full_day' => $maternity_normal_full_day,
+        'maternity_normal_half_day_1' => $maternity_normal_half_day_1,
+        'maternity_normal_half_day_2' => $maternity_normal_half_day_2,
+        'maternity_normal_cs' => $maternity_normal_cs,
+        'maternity_normal_cs_less_7' => $maternity_normal_cs_less_7,
+        'solo_parent_leave' => $solo_parent_leave,
+        'miscarriage_leave' => $miscarriage_leave,
+        'no_swipe_in' => $no_swipe_in,
+        'no_swipe_out' => $no_swipe_out,
+        'no_swipe_in_with_half_day_leave_filing' => $no_swipe_in_with_half_day_leave_filing,
+        'no_swipe_out_with_half_day_leave_filing' => $no_swipe_out_with_half_day_leave_filing,
+        'off_on_duty' => $off_on_duty,
+        'present_on_duty_2' => $present_on_duty_2,
+        'present_on_duty_3' => $present_on_duty_3,
+        'special_on_duty' => $special_on_duty,
+        'on_duty_half' => $on_duty_half,
+        'overtime_public_holiday' => $overtime_public_holiday,
+        'overtime_regular' => $overtime_regular,
+        'paternity_leave_full_day' => $paternity_leave_full_day,
+        'paternity_leave_half_day_1' => $paternity_leave_half_day_1,
+        'paternity_leave_half_day_2' => $paternity_leave_half_day_2,
+        'penalty_no_in' => $penalty_no_in,
+        'penalty_no_out' => $penalty_no_out,
+        'present_full_day' => $present_full_day,
+        'present_half_day_1' => $present_half_day_1,
+        'present_half_day_2' => $present_half_day_2,
+        'present_off' => $present_off,
+        'present_off_nsi' => $present_off_nsi,
+        'present_off_nso' => $present_off_nso,
+        'present_off_special' => $present_off_special,
+        'present_3_regular_holiday' => $present_3_regular_holiday,
+        'service_incentive_leave_full_day' => $service_incentive_leave_full_day,
+        'service_incentive_leave_half_day_1' => $service_incentive_leave_half_day_1,
+        'service_incentive_leave_half_day_2' => $service_incentive_leave_half_day_2,
+        'sick_leave_full_day' => $sick_leave_full_day,
+        'sick_leave_half_day_1' => $sick_leave_half_day_1,
+        'sick_leave_half_day_2' => $sick_leave_half_day_2,
+        'sick_leave_manager_full_day' => $sick_leave_manager_full_day,
+        'sick_leave_manager_half_day_1' => $sick_leave_manager_half_day_1,
+        'sick_leave_manager_half_day_2' => $sick_leave_manager_half_day_2,
+        'solo_parent_leave_full_day' => $solo_parent_leave_full_day,
+        'solo_parent_leave_half_day_1' => $solo_parent_leave_half_day_1,
+        'solo_parent_leave_half_day_2' => $solo_parent_leave_half_day_2,
+        'special_leave_for_women_ra_9710_full_day' => $special_leave_for_women_ra_9710_full_day,
+        'special_leave_for_women_half_day_1' => $special_leave_for_women_half_day_1,
+        'special_leave_for_women_half_day_2' => $special_leave_for_women_half_day_2,
+        'suspension' => $suspension,
+        'training' => $training,
+        'unproductive' => $unproductive,
+        'vacation_leave_full_day' => $vacation_leave_full_day,
+        'vacation_leave_half_day_1' => $vacation_leave_half_day_1,
+        'vacation_leave_half_day_2' => $vacation_leave_half_day_2,
+        'vacation_leave_manager_full_day' => $vacation_leave_manager_full_day,
+        'vacation_leave_manager_half_day_1' => $vacation_leave_manager_half_day_1,
+        'vacation_leave_manager_half_day_2' => $vacation_leave_manager_half_day_2,
+        'vawc_leave_ra_9262_full_day' => $vawc_leave_ra_9262_full_day,
+        'vawc_leave_half_day_1' => $vawc_leave_half_day_1,
+        'vawc_leave_half_day_2' => $vawc_leave_half_day_2,
+        'total_activity' => $total,
+    ];

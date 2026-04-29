@@ -11,8 +11,11 @@ import { ActivityIndicator, Alert, Image, Modal, Platform, ScrollView, StatusBar
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getBackendUrl, SUPABASE_URL, SUPABASE_ANON_KEY } from '../../constants/backend-config';
 import { recheckNetwork } from '../../constants/network-detector';
+import NetInfo from '@react-native-community/netinfo';
 import { useTheme } from './ThemeContext';
 import Reanimated, { useAnimatedStyle, useSharedValue, withTiming, Easing, interpolate } from 'react-native-reanimated';
+import CustomAlert from '../../components/CustomAlert';
+import { useCustomAlert } from '../../hooks/useCustomAlert';
 
 interface Activity {
   activity_id: number;
@@ -56,6 +59,7 @@ export default function UserActivity() {
   const router = useRouter();
   const { colors, theme } = useTheme();
   const isDark = theme === 'dark';
+  const { visible, config, showAlert, hideAlert } = useCustomAlert();
   
   const [task, setTask] = useState('');
   const [location, setLocation] = useState('');
@@ -110,7 +114,7 @@ export default function UserActivity() {
         }
       }
     } catch (e) {
-      Alert.alert('Error', 'Could not open file. Try opening from another app.');
+      showAlert({ type: 'error', title: '❌ Error', message: 'Could not open file. Try opening from another app.' });
     } finally {
       setOpeningFile(false);
     }
@@ -143,7 +147,19 @@ export default function UserActivity() {
   }, []);
 
   useEffect(() => {
-    recheckNetwork().catch(() => {});
+    const checkNetworkAndRedirect = async () => {
+      try {
+        const state = await NetInfo.fetch();
+        if (!state.isConnected || state.isInternetReachable === false) {
+          router.replace('/(tabs)/offlineactivity' as any);
+          return;
+        }
+        await recheckNetwork();
+      } catch {
+        recheckNetwork().catch(() => {});
+      }
+    };
+    checkNetworkAndRedirect();
   }, []);
 
   const loadEmpIdAndActivities = async () => {
@@ -166,10 +182,10 @@ export default function UserActivity() {
         setEmpId(empIdNum);
         await loadActivities(empIdNum);
       } else {
-        Alert.alert('Error', 'Unable to load employee ID. Please log in again.');
+        showAlert({ type: 'error', title: '❌ Error', message: 'Unable to load employee ID. Please log in again.' });
       }
     } catch (_error) {
-      Alert.alert('Error', 'Failed to load activities');
+      showAlert({ type: 'error', title: '❌ Error', message: 'Failed to load activities' });
     } finally {
       setLoading(false);
     }
@@ -262,7 +278,7 @@ export default function UserActivity() {
     try {
       const { status } = await ImagePicker.requestCameraPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permission Denied', 'We need camera access to take photo evidence.');
+        showAlert({ type: 'error', title: '❌ Permission Denied', message: 'We need camera access to take photo evidence.' });
         return;
       }
 
@@ -287,7 +303,7 @@ export default function UserActivity() {
       }
       setShowAttachModal(false);
     } catch (_error) {
-      Alert.alert('Error', 'Failed to take photo');
+      showAlert({ type: 'error', title: '❌ Error', message: 'Failed to take photo' });
     }
   };
 
@@ -295,7 +311,7 @@ export default function UserActivity() {
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permission Denied', 'We need camera roll permissions to add photo evidence.');
+        showAlert({ type: 'error', title: '❌ Permission Denied', message: 'We need camera roll permissions to add photo evidence.' });
         return;
       }
 
@@ -319,7 +335,7 @@ export default function UserActivity() {
         }
       }
     } catch (_error) {
-      Alert.alert('Error', 'Failed to pick image');
+      showAlert({ type: 'error', title: '❌ Error', message: 'Failed to pick image' });
     }
   };
 
@@ -346,7 +362,7 @@ export default function UserActivity() {
       setPhotoBase64(null);
       setShowAttachModal(false);
     } catch (_error) {
-      Alert.alert('Error', 'Failed to pick file');
+      showAlert({ type: 'error', title: '❌ Error', message: 'Failed to pick file' });
     }
   };
 
@@ -384,17 +400,17 @@ export default function UserActivity() {
 
   const handleSubmit = async () => {
     if (!task.trim()) {
-      Alert.alert('Missing Information', 'Please enter a task description');
+      showAlert({ type: 'warning', title: '⚠️ Missing Information', message: 'Please enter a task description' });
       return;
     }
 
     if (!location.trim()) {
-      Alert.alert('Missing Information', 'Please enter a location');
+      showAlert({ type: 'warning', title: '⚠️ Missing Information', message: 'Please enter a location' });
       return;
     }
 
     if (!empId) {
-      Alert.alert('Error', 'Employee ID not found. Please try again.');
+      showAlert({ type: 'error', title: '❌ Error', message: 'Employee ID not found. Please try again.' });
       return;
     }
 
@@ -432,30 +448,30 @@ export default function UserActivity() {
       const result = await response.json();
 
       if (result.ok) {
-        Alert.alert('Success', 'Activity recorded successfully!', [
-          {
-            text: 'OK',
-            onPress: () => {
-              // Reset form
-              setTask('');
-              setLocation('');
-              setPhotoUri(null);
-              setPhotoBase64(null);
-              setAttachmentUri(null);
-              setAttachmentName(null);
-              setAttachmentType(null);
-              // Reload activities
-              if (empId) {
-                loadActivities(empId);
-              }
-            },
-          },
-        ]);
+        showAlert({
+          type: 'success',
+          title: '✅ Success',
+          message: 'Activity recorded successfully!',
+          onClose: () => {
+            // Reset form
+            setTask('');
+            setLocation('');
+            setPhotoUri(null);
+            setPhotoBase64(null);
+            setAttachmentUri(null);
+            setAttachmentName(null);
+            setAttachmentType(null);
+            // Reload activities
+            if (empId) {
+              loadActivities(empId);
+            }
+          }
+        });
       } else {
-        Alert.alert('Error', result.message || 'Failed to save activity');
+        showAlert({ type: 'error', title: '❌ Error', message: result.message || 'Failed to save activity' });
       }
     } catch (_error) {
-      Alert.alert('Error', 'Failed to submit activity. Please check your connection.');
+      showAlert({ type: 'error', title: '❌ Error', message: 'Failed to submit activity. Please check your connection.' });
     } finally {
       setSubmitting(false);
     }
@@ -464,6 +480,7 @@ export default function UserActivity() {
   if (loading) {
     return (
       <SafeAreaView style={[styles.container, dyn.bg]} edges={['top', 'left', 'right']}>
+        <CustomAlert visible={visible} {...config} onClose={hideAlert} onConfirm={config.onClose} onCancel={config.onCancel} />
         <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
         <View style={[styles.header, dyn.border]}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
@@ -482,6 +499,7 @@ export default function UserActivity() {
 
   return (
     <SafeAreaView style={[styles.container, dyn.bg]} edges={['top', 'left', 'right']}>
+      <CustomAlert visible={visible} {...config} onClose={hideAlert} onConfirm={config.onClose} onCancel={config.onCancel} />
       <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
       
       {/* HEADER */}

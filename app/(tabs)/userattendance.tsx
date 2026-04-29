@@ -9,6 +9,7 @@ import MapView, { Marker } from '../../components/Map';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getBackendUrl } from '../../constants/backend-config';
 import { recheckNetwork } from '../../constants/network-detector';
+import NetInfo from '@react-native-community/netinfo';
 import { useTheme } from './ThemeContext';
 import Reanimated, { useAnimatedStyle, useSharedValue, withTiming, Easing, interpolate } from 'react-native-reanimated';
 
@@ -206,8 +207,24 @@ export default function UserAttendance() {
   }, []);
 
   // Recheck network when screen mounts so verify uses ngrok if local is unreachable
+  // Also check if offline — redirect to offline mode if no internet
   useEffect(() => {
-    recheckNetwork().catch(() => {});
+    const checkNetworkAndRedirect = async () => {
+      try {
+        const state = await NetInfo.fetch();
+        if (!state.isConnected || state.isInternetReachable === false) {
+          // No internet — redirect to offline mode
+          router.replace('/(tabs)/offlinemode' as any);
+          return;
+        }
+        // Online — proceed with network detection
+        await recheckNetwork();
+      } catch {
+        // If check fails, still try to use normal flow
+        recheckNetwork().catch(() => {});
+      }
+    };
+    checkNetworkAndRedirect();
   }, []);
 
   // Get current location when clocked in (for map)

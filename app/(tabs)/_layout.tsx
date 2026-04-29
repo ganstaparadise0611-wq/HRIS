@@ -84,6 +84,10 @@ function RootLayoutContent() {
           <Stack.Screen name="usertimesheet" />
           <Stack.Screen name="attendancereport" />
           <Stack.Screen name="attendancelocationreport" />
+          <Stack.Screen name="offlinemode" />
+          <Stack.Screen name="offlineattendance" />
+          <Stack.Screen name="offlineattendancelist" />
+          <Stack.Screen name="offlineactivity" />
         </Stack>
         {!hideBottomNav && <BottomNav />}
       </Animated.View>

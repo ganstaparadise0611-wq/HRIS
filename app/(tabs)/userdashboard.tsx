@@ -7,6 +7,7 @@ import { ActivityIndicator, Image, SafeAreaView, ScrollView, StatusBar, StyleShe
 import UserAvatar from '../../components/UserAvatar';
 import { getBackendUrl } from '../../constants/backend-config';
 import { useTheme } from './ThemeContext';
+import { getUnsyncedAttendanceRecords, getUnsyncedActivityRecords, syncAll } from '../../constants/offline-storage';
 
 import Animated, { useAnimatedStyle, useSharedValue, withTiming, Easing, interpolate } from 'react-native-reanimated';
 import { Dimensions } from 'react-native';
@@ -144,6 +145,22 @@ export default function UserDashboard() {
       loadStatus();
       loadAnnouncements();
       loadAttendanceHistory();
+
+      // Auto-sync any offline records in background
+      const autoSync = async () => {
+        try {
+          const unsyncedAtt = await getUnsyncedAttendanceRecords();
+          const unsyncedAct = await getUnsyncedActivityRecords();
+          if (unsyncedAtt.length > 0 || unsyncedAct.length > 0) {
+            console.log(`[AutoSync] Found ${unsyncedAtt.length} attendance + ${unsyncedAct.length} activity records to sync`);
+            const result = await syncAll();
+            console.log('[AutoSync] Result:', JSON.stringify(result));
+          }
+        } catch (e) {
+          console.log('[AutoSync] Background sync failed (will retry later):', e);
+        }
+      };
+      autoSync();
     }, [])
   );
 
@@ -222,7 +239,7 @@ export default function UserDashboard() {
                 <View style={styles.attendanceLeft}>
                    <Text style={[styles.cardTitle, dyn.sub]}>TODAY</Text>
                    <Text style={[styles.timerText, dyn.text]}>{clockInTime ? clockInTime : "-- : --"}</Text>
-                   <Text style={styles.shiftText}>8:00 AM - 5:00 PM</Text>
+                   <Text style={[styles.shiftText, dyn.sub]}>8:00 AM - 5:00 PM</Text>
                 </View>
                 <View style={styles.attendanceDivider} />
                 <View style={styles.attendanceRight}>

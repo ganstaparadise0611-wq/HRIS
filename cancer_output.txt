@@ -1,0 +1,16 @@
+﻿node.exe : Error: PDF file path 
+or URL is required
+At C:\Program 
+Files\nodejs\npx.ps1:29 char:3
++   & $NODE_EXE $NPX_CLI_JS 
+$args
++   
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : N 
+   otSpecified: (Error: PDF fi  
+  le path or URL is required:   
+ String) [], RemoteException
+    + FullyQualifiedErrorId : N 
+   ativeCommandError
+ 
+Use --help for usage information

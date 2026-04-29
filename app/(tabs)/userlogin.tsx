@@ -58,6 +58,8 @@ export default function UserLogin() {
   const [gender, setGender] = useState('');
   const [role, setRole] = useState('Employee');
   const [deptId, setDeptId] = useState<number | null>(null);
+  const [pendingLogId, setPendingLogId] = useState<number | null>(null);
+  const [pendingEmpId, setPendingEmpId] = useState<string | null>(null);
   
   // Session check on mount
   useEffect(() => {
@@ -268,6 +270,31 @@ export default function UserLogin() {
         AsyncStorage.setItem('username', result.user.username),
         AsyncStorage.setItem('keepLogged', keepLogged ? 'true' : 'false'),
       ]);
+
+      // Check if user has facial recognition data
+      const { SUPABASE_URL, SUPABASE_ANON_KEY } = await import('../../constants/backend-config');
+      const empRes  = await fetch(
+        `${SUPABASE_URL}/rest/v1/employees?log_id=eq.${result.user.log_id}&select=face,emp_id&limit=1`,
+        { headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` } }
+      );
+      const empData = await empRes.json();
+      
+      if (empData && empData.length > 0 && !empData[0].face) {
+        // No face record found
+        setPendingLogId(result.user.log_id);
+        setPendingEmpId(empData[0].emp_id);
+        showAlert({
+          type: 'warning',
+          title: 'Face Profile Missing',
+          message: 'We could not find a facial profile for your account. Please capture your face to enable Clock-In/Clock-Out.',
+          buttonText: 'Capture Face',
+          onClose: () => {
+            requestCameraPermission();
+          }
+        });
+        setLoading(false);
+        return;
+      }
 
       // Register push token now that userId is known
       registerPushTokenAfterLogin().catch(() => {});
@@ -512,7 +539,50 @@ export default function UserLogin() {
         // Debug: Check if base64 was captured
         if (photo.base64) {
           console.log('Base64 captured, length:', photo.base64.length);
-          showAlert({ type: 'success', title: 'Success', message: 'Face captured successfully! This will be used for clock-in verification.' });
+          
+          if (pendingLogId && pendingEmpId) {
+            // Registration flow on login
+            const { SUPABASE_URL, SUPABASE_ANON_KEY } = await import('../../constants/backend-config');
+            const faceDataUri = `data:image/jpeg;base64,${photo.base64}`;
+            const timestamp = new Date().getTime();
+            const stableQr = `LOGID:${pendingLogId}|HASH:${generateFaceHash(photo.base64)}|TIME:${timestamp}`;
+
+            setLoading(true);
+            const patchRes = await fetch(
+              `${SUPABASE_URL}/rest/v1/employees?emp_id=eq.${pendingEmpId}`,
+              {
+                method: 'PATCH',
+                headers: {
+                  'Content-Type': 'application/json',
+                  apikey: SUPABASE_ANON_KEY,
+                  Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+                },
+                body: JSON.stringify({
+                  face: faceDataUri,
+                  qr_code: stableQr
+                })
+              }
+            );
+
+            if (patchRes.ok) {
+              showAlert({ 
+                type: 'success', 
+                title: '✅ Face Saved', 
+                message: 'Your facial profile and QR Code have been created successfully!',
+                onClose: () => {
+                  setPendingLogId(null);
+                  setPendingEmpId(null);
+                  registerPushTokenAfterLogin().catch(() => {});
+                  router.replace('/userdashboard');
+                }
+              });
+            } else {
+              showAlert({ type: 'error', title: 'Error', message: 'Failed to save face recognition data. Please try again.' });
+            }
+            setLoading(false);
+          } else {
+            showAlert({ type: 'success', title: 'Success', message: 'Face captured successfully! This will be used for clock-in verification.' });
+          }
         } else {
           console.error('No base64 data in photo');
           showAlert({ type: 'warning', title: 'Warning', message: 'Face captured but data may be incomplete. Please retake for better recognition.' });
@@ -815,16 +885,6 @@ export default function UserLogin() {
               </TouchableOpacity>
 
               {/* Toggle between Login and Sign Up */}
-              <View style={styles.switchModeContainer}>
-                <Text style={[styles.switchModeText, dyn.sub]}>
-                  {isSignUp ? 'Already have an account?' : "Don't have an account?"}
-                </Text>
-                <TouchableOpacity onPress={toggleMode}>
-                  <Text style={styles.switchModeLink}>
-                    {isSignUp ? ' Sign In' : ' Sign Up'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
             </ScrollView>
           </View>
         </View>
@@ -998,7 +1058,7 @@ export default function UserLogin() {
       </KeyboardAvoidingView>
       
       <View style={styles.footer}>
-        <Text style={styles.footerText}>We Empower Development</Text>
+        <Text style={[styles.footerText, dyn.sub]}>We Empower Development</Text>
       </View>
 
       {/* Custom Alert Modal */}
@@ -1066,7 +1126,7 @@ const styles = StyleSheet.create({
   loginButtonText: { color: '#fff', fontSize: 18, fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: 1 },
   forgotPassword: { color: '#F27121', fontSize: 13, fontWeight: '600' },
   footer: { paddingVertical: 20, width: '100%', alignItems: 'center' },
-  footerText: { color: '#555', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: 1 },
+  footerText: { fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: 1 },
   
   // New styles for Sign Up and Face Capture
   faceSection: { marginTop: 10 },
