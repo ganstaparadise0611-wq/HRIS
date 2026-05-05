@@ -143,18 +143,23 @@ function get_all_push_tokens(): array
  */
 function notify_users(array $userIds, string $title, string $body, array $data = []): void
 {
-    // INSERT NOTIFICATIONS INTO SUPABASE FOR IN-APP INTERFACE
+    if (empty($userIds)) return;
+
+    // INSERT NOTIFICATIONS INTO SUPABASE FOR IN-APP INTERFACE (BATCHED)
     $type = $data['type'] ?? 'general';
+    $batchData = [];
     foreach ($userIds as $userId) {
-        $insertData = [
+        $batchData[] = [
             'user_id' => $userId,
             'title'   => $title,
             'message' => $body,
             'type'    => $type,
             'is_read' => false
         ];
-        supabase_request('POST', 'rest/v1/notifications', $insertData);
     }
+    
+    // Single request for all notifications
+    supabase_request('POST', 'rest/v1/notifications', $batchData);
 
     $tokens = get_push_tokens_for_users($userIds);
     if (!empty($tokens)) {

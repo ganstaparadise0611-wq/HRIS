@@ -315,6 +315,22 @@ export default function ModernSidebar() {
         const id       = await AsyncStorage.getItem('userId');
         const asyncName = await AsyncStorage.getItem('username');
 
+        // Clear local state immediately if the user ID changed (e.g. new user logged in)
+        if (id !== userId) {
+          setUserName('User');
+          setUserRole('');
+          setUserDept('');
+          setLeaveLeft('—');
+          setShiftHours('—');
+          setIsClockedIn(false);
+          setClockInTime('—');
+          setShiftName('Regular');
+          setShiftStart('08:00');
+          setShiftEnd('17:00');
+          setIsLate(false);
+          setLateBy('');
+        }
+
         if (!id) {
           if (asyncName) setUserName(asyncName);
           return;
@@ -664,6 +680,22 @@ export default function ModernSidebar() {
               cancelText: 'Cancel',
               onConfirm: async () => {
                 setSidebarVisible(false);
+                
+                // Clear state
+                setUserId(null);
+                setUserName('User');
+                setUserRole('');
+                setUserDept('');
+                setLeaveLeft('—');
+                setShiftHours('—');
+                setIsClockedIn(false);
+                setClockInTime('—');
+                setShiftName('Regular');
+                setShiftStart('08:00');
+                setShiftEnd('17:00');
+                setIsLate(false);
+                setLateBy('');
+
                 // Clear session data to prevent auto-login from "Remember Me"
                 try {
                   await AsyncStorage.multiRemove([

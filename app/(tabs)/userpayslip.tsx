@@ -1,5 +1,6 @@
 import { FontAwesome5, Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { Asset } from 'expo-asset';
 import * as FileSystem from 'expo-file-system';
 import * as Print from 'expo-print';
@@ -25,19 +26,13 @@ interface Payslip {
 const fmt = (n: number) => '₱ ' + n.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtH = (h: number) => `${h.toFixed(2)}h`;
 
-function getPeriodOptions() {
-  const now = new Date(); const opts = [];
-  for (let i = 0; i < 6; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const y = d.getFullYear(); const m = d.getMonth();
-    const pad = (n: number) => String(n).padStart(2, '0');
-    const mn = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    opts.push({ label: `${mn[m]} 1–15, ${y}`, start: `${y}-${pad(m+1)}-01`, end: `${y}-${pad(m+1)}-15` });
-    const last = new Date(y, m+1, 0).getDate();
-    opts.push({ label: `${mn[m]} 16–${last}, ${y}`, start: `${y}-${pad(m+1)}-16`, end: `${y}-${pad(m+1)}-${last}` });
-  }
-  return opts;
-}
+const fmtDate = (d: Date) => d.toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' });
+const toYMD = (d: Date) => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
 
 function buildPdf(ps: Payslip, period: string, logoB64?: string): string {
   const logoSrc = logoB64
@@ -157,8 +152,16 @@ export default function UserPayslip() {
   const router = useRouter();
   const { colors, theme } = useTheme();
   const isDark = theme === 'dark';
-  const periods = getPeriodOptions();
-  const [idx, setIdx] = useState(0);
+
+  const [startDate, setStartDate] = useState(() => {
+    const d = new Date();
+    d.setDate(1); // Default to 1st of current month
+    return d;
+  });
+  const [endDate, setEndDate] = useState(() => new Date());
+  const [showStartPicker, setShowStartPicker] = useState(false);
+  const [showEndPicker, setShowEndPicker] = useState(false);
+
   const [payslip, setPayslip] = useState<Payslip|null>(null);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -168,21 +171,22 @@ export default function UserPayslip() {
 
   const dyn = { bg:{backgroundColor:colors.background}, text:{color:colors.text}, sub:{color:colors.subText}, card:{backgroundColor:colors.card}, border:{borderColor:colors.border} };
 
-  const fetchData = useCallback(async (i: number) => {
+  const fetchData = useCallback(async (sDate: Date, eDate: Date) => {
     try {
       const uid = await AsyncStorage.getItem('userId');
       if (!uid) return;
-      const p = periods[i];
-      const res = await fetch(`${getBackendUrl()}/get-payslip.php?user_id=${uid}&start_date=${p.start}&end_date=${p.end}`, { headers:{'ngrok-skip-browser-warning':'true'} });
+      const sStr = toYMD(sDate);
+      const eStr = toYMD(eDate);
+      const res = await fetch(`${getBackendUrl()}/get-payslip.php?user_id=${uid}&start_date=${sStr}&end_date=${eStr}`, { headers:{'ngrok-skip-browser-warning':'true'} });
       const json = await res.json();
       if (json.ok) setPayslip(json.payslip);
       else Alert.alert('Error', json.message||'Failed to load payslip');
     } catch (e:any) { Alert.alert('Error', e?.message||'Could not reach server'); }
   }, []);
 
-  const load = async (i: number) => { setLoading(true); setPayslip(null); await fetchData(i); setLoading(false); };
-  const onRefresh = async () => { setRefreshing(true); await fetchData(idx); setRefreshing(false); };
-  useEffect(() => { load(0); }, []);
+  const load = async (sDate: Date, eDate: Date) => { setLoading(true); setPayslip(null); await fetchData(sDate, eDate); setLoading(false); };
+  const onRefresh = async () => { setRefreshing(true); await fetchData(startDate, endDate); setRefreshing(false); };
+  useEffect(() => { load(startDate, endDate); }, []);
 
   const download = async () => {
     if (!payslip) return;
@@ -200,7 +204,7 @@ export default function UserPayslip() {
         }
       } catch (_) { /* logo load failed — PDF will use text fallback */ }
 
-      const { uri } = await Print.printToFileAsync({ html: buildPdf(payslip, periods[idx].label, logoB64), base64: false });
+      const { uri } = await Print.printToFileAsync({ html: buildPdf(payslip, `${fmtDate(startDate)} – ${fmtDate(endDate)}`, logoB64), base64: false });
       await Sharing.shareAsync(uri, { mimeType:'application/pdf', dialogTitle:'Save / Share Payslip' });
     } catch (e:any) { Alert.alert('Failed', e?.message||'Could not generate PDF'); }
     finally { setDl(false); }
@@ -220,13 +224,49 @@ export default function UserPayslip() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.chipScroll} contentContainerStyle={s.chipRow}>
-        {periods.map((p,i) => (
-          <TouchableOpacity key={i} onPress={() => { setIdx(i); load(i); }} style={[s.chip, idx===i&&s.chipActive]}>
-            <Text style={[s.chipTxt, idx===i&&s.chipTxtActive]}>{p.label}</Text>
+      <View style={s.datePickerContainer}>
+        <View style={s.dateBtnWrapper}>
+          <Text style={[s.dateLbl, dyn.sub]}>Start Date</Text>
+          <TouchableOpacity style={[s.dateBtn, dyn.card, dyn.border]} onPress={() => setShowStartPicker(true)}>
+            <Ionicons name="calendar-outline" size={16} color={colors.text} />
+            <Text style={[s.dateTxt, dyn.text]}>{fmtDate(startDate)}</Text>
           </TouchableOpacity>
-        ))}
-      </ScrollView>
+        </View>
+        <Ionicons name="arrow-forward" size={16} color={colors.subText} style={{marginTop: 18}} />
+        <View style={s.dateBtnWrapper}>
+          <Text style={[s.dateLbl, dyn.sub]}>End Date</Text>
+          <TouchableOpacity style={[s.dateBtn, dyn.card, dyn.border]} onPress={() => setShowEndPicker(true)}>
+            <Ionicons name="calendar-outline" size={16} color={colors.text} />
+            <Text style={[s.dateTxt, dyn.text]}>{fmtDate(endDate)}</Text>
+          </TouchableOpacity>
+        </View>
+        <TouchableOpacity style={s.searchBtn} onPress={() => load(startDate, endDate)}>
+          <Ionicons name="search" size={20} color="#fff" />
+        </TouchableOpacity>
+      </View>
+
+      {showStartPicker && (
+        <DateTimePicker
+          value={startDate}
+          mode="date"
+          display="default"
+          onChange={(event, selectedDate) => {
+            setShowStartPicker(false);
+            if (selectedDate) setStartDate(selectedDate);
+          }}
+        />
+      )}
+      {showEndPicker && (
+        <DateTimePicker
+          value={endDate}
+          mode="date"
+          display="default"
+          onChange={(event, selectedDate) => {
+            setShowEndPicker(false);
+            if (selectedDate) setEndDate(selectedDate);
+          }}
+        />
+      )}
 
       {loading ? (
         <View style={s.center}><ActivityIndicator size="large" color="#F27121"/><Text style={[s.centerTxt,dyn.sub]}>Loading payslip…</Text></View>
@@ -234,7 +274,7 @@ export default function UserPayslip() {
         <View style={s.center}>
           <MaterialCommunityIcons name="file-document-outline" size={48} color={colors.subText}/>
           <Text style={[s.centerTxt,dyn.sub]}>No payslip data for this period.</Text>
-          <TouchableOpacity style={s.retryBtn} onPress={() => load(idx)}>
+          <TouchableOpacity style={s.retryBtn} onPress={() => load(startDate, endDate)}>
             <Ionicons name="refresh" size={16} color="#fff"/>
             <Text style={s.retryTxt}>Retry</Text>
           </TouchableOpacity>
@@ -252,7 +292,7 @@ export default function UserPayslip() {
             <View style={{flexDirection:'row',justifyContent:'space-between',alignItems:'flex-end'}}>
               <View>
                 <Text style={s.netPeriodLabel}>PAY PERIOD</Text>
-                <Text style={s.netPeriodDate}>{periods[idx].label}</Text>
+                <Text style={s.netPeriodDate}>{`${fmtDate(startDate)} – ${fmtDate(endDate)}`}</Text>
               </View>
               <View style={s.badge}><Text style={s.badgeTxt}>GENERATED</Text></View>
             </View>
@@ -345,12 +385,12 @@ const s = StyleSheet.create({
   header:      {flexDirection:'row',justifyContent:'space-between',alignItems:'center',paddingHorizontal:24,paddingTop:20,paddingBottom:12},
   title:       {fontSize:20,fontWeight:'800',letterSpacing:-0.5},
   iconBtn:     {padding:8,borderRadius:20,backgroundColor:'rgba(0,0,0,0.04)'},
-  chipScroll:  {maxHeight:50,flexGrow:0},
-  chipRow:     {paddingHorizontal:20,paddingBottom:6,gap:8,alignItems:'center',flexDirection:'row'},
-  chip:        {paddingHorizontal:14,paddingVertical:7,borderRadius:20,backgroundColor:'rgba(0,0,0,0.06)',height:34,justifyContent:'center'},
-  chipActive:  {backgroundColor:'#F27121'},
-  chipTxt:     {fontSize:12,fontWeight:'700',color:'#888'},
-  chipTxtActive:{color:'#fff'},
+  datePickerContainer: {flexDirection:'row', paddingHorizontal:20, paddingBottom:12, gap:12, alignItems:'flex-end'},
+  dateBtnWrapper: {flex:1},
+  dateLbl: {fontSize:11, fontWeight:'700', marginBottom:4, marginLeft:4},
+  dateBtn: {flexDirection:'row', alignItems:'center', gap:8, borderWidth:1, borderRadius:12, paddingHorizontal:12, height:44},
+  dateTxt: {fontSize:13, fontWeight:'600'},
+  searchBtn: {width:44, height:44, borderRadius:12, backgroundColor:'#F27121', justifyContent:'center', alignItems:'center'},
   center:      {flex:1,justifyContent:'center',alignItems:'center',gap:12},
   centerTxt:   {fontSize:14,marginTop:4,textAlign:'center',paddingHorizontal:32},
   retryBtn:    {flexDirection:'row',alignItems:'center',gap:6,backgroundColor:'#F27121',paddingHorizontal:20,paddingVertical:10,borderRadius:20,marginTop:8},

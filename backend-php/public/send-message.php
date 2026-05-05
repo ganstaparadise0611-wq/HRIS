@@ -38,6 +38,7 @@ $senderId = $body['sender_id'] ?? '';
 $content = trim($body['content'] ?? '');
 $mediaUrl = $body['media_url'] ?? null;
 $mediaType = $body['media_type'] ?? null;
+$replyToId = $body['reply_to_id'] ?? null;
 
 // Allow empty content if there is a media attachment
 if (empty($conversationId) || empty($senderId) || (empty($content) && empty($mediaUrl))) {
@@ -46,14 +47,21 @@ if (empty($conversationId) || empty($senderId) || (empty($content) && empty($med
     exit;
 }
 
-// Insert message into Supabase
-[$status, $data, $err] = supabase_insert('messages', [
+// Build insert payload
+$insertPayload = [
     'conversation_id' => (int)$conversationId,
     'sender_id' => (int)$senderId,
     'content' => $content,
     'media_url' => $mediaUrl,
     'media_type' => $mediaType,
-]);
+];
+
+if (!empty($replyToId)) {
+    $insertPayload['reply_to_id'] = (int)$replyToId;
+}
+
+// Insert message into Supabase
+[$status, $data, $err] = supabase_insert('messages', $insertPayload);
 
 if ($err) {
     error_log("Error sending message: " . $err);
@@ -76,11 +84,14 @@ if (is_array($messageData)) {
 }
 
 // --- Push notification: alert other members of this conversation ---
-// Fetch sender's username
-[$uStatus, $uData] = supabase_request('GET', "rest/v1/accounts?log_id=eq.{$senderId}&select=username");
-$senderName = 'Someone';
-if ($uStatus === 200 && is_array($uData) && count($uData) > 0) {
-    $senderName = $uData[0]['username'] ?? 'Someone';
+// Fetch sender's username (if not provided in body)
+$senderName = $body['sender_name'] ?? null;
+if (!$senderName) {
+    [$uStatus, $uData] = supabase_request('GET', "rest/v1/accounts?log_id=eq.{$senderId}&select=username");
+    $senderName = 'Someone';
+    if ($uStatus === 200 && is_array($uData) && count($uData) > 0) {
+        $senderName = $uData[0]['username'] ?? 'Someone';
+    }
 }
 
 // Fetch all participants in the conversation

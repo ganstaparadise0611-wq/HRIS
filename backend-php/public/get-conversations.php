@@ -51,39 +51,40 @@ if (!is_array($participantData) || count($participantData) === 0) {
 $convIds = array_unique(array_column($participantData, 'conversation_id'));
 $idList = implode(',', $convIds);
 
-// Step 2 & 3: Fetch conversation details and ALL participants for these IDs in parallel
+// Step 2, 3 & 5: Fetch details, ALL participants, and LAST MESSAGES in parallel
 $multiReqs = [
     'details' => ['method' => 'GET', 'path' => "rest/v1/conversations?id=in.({$idList})&select=*"],
     'participants' => ['method' => 'GET', 'path' => "rest/v1/conversation_participants?conversation_id=in.({$idList})&select=conversation_id,user_id"]
 ];
 
+// Add message requests to the parallel batch
+foreach ($convIds as $cid) {
+    $multiReqs["msg_{$cid}"] = [
+        'method' => 'GET',
+        'path' => "rest/v1/messages?conversation_id=eq.{$cid}&order=created_at.desc&limit=1&select=content,created_at,sender_id,media_url"
+    ];
+}
+
 $multiResults = supabase_request_multi($multiReqs);
 
-$convStatus = $multiResults['details'][0];
-$convDetailsMap = $multiResults['details'][1];
-$partsStatus = $multiResults['participants'][0];
-$allParts = $multiResults['participants'][1];
-
-if ($convStatus !== 200 || !is_array($convDetailsMap)) {
-    http_response_code(500);
-    echo json_encode(['ok' => false, 'message' => 'Failed to fetch conversation details']);
-    exit;
-}
+$convDetailsMap = $multiResults['details'][1] ?? [];
+$allParts = $multiResults['participants'][1] ?? [];
 
 // Group conversations by ID
 $chats = [];
-foreach ($convDetailsMap as $c) {
-    $chats[$c['id']] = $c;
+if (is_array($convDetailsMap)) {
+    foreach ($convDetailsMap as $c) {
+        $chats[$c['id']] = $c;
+    }
 }
 
-// Identify DM other participants
+// Identify DM other participants and Sender IDs for previews
 $dmOtherUserIds = [];
 $convOtherUserMap = [];
-if ($partsStatus === 200 && is_array($allParts)) {
+if (is_array($allParts)) {
     foreach ($allParts as $p) {
         $cid = $p['conversation_id'];
         $pid = (string)$p['user_id'];
-        
         if ($pid !== (string)$userId && isset($chats[$cid]) && $chats[$cid]['type'] === 'dm') {
             $dmOtherUserIds[] = $pid;
             $convOtherUserMap[$cid] = $pid;
@@ -91,37 +92,11 @@ if ($partsStatus === 200 && is_array($allParts)) {
     }
 }
 
-// Step 4: Fetch usernames and online status for DM participants identified (Batch)
-$userNamesMap = [];
-$userOnlineMap = [];
-if (!empty($dmOtherUserIds)) {
-    $dmOtherUserIds = array_unique($dmOtherUserIds);
-    $uIdList = implode(',', $dmOtherUserIds);
-    [$uStatus, $uData] = supabase_request('GET', "rest/v1/accounts?log_id=in.({$uIdList})&select=log_id,username,is_online");
-    if ($uStatus === 200 && is_array($uData)) {
-        foreach ($uData as $u) {
-            $userNamesMap[(string)$u['log_id']] = $u['username'];
-            $userOnlineMap[(string)$u['log_id']] = (bool)($u['is_online'] ?? false);
-        }
-    }
-}
-
-// Step 5: Fetch last message for each conversation in PARALLEL
-$msgReqs = [];
-foreach ($convIds as $cid) {
-    $msgReqs[$cid] = [
-        'method' => 'GET',
-        'path' => "rest/v1/messages?conversation_id=eq.{$cid}&order=created_at.desc&limit=1&select=content,created_at,sender_id,media_url"
-    ];
-}
-
-$msgResults = supabase_request_multi($msgReqs);
-
 $tempResults = [];
 $senderIdsToFetch = [];
 
 foreach ($convIds as $cid) {
-    [$mStatus, $mData, $mErr] = $msgResults[$cid];
+    [$mStatus, $mData] = $multiResults["msg_{$cid}"] ?? [0, null];
     $lastMsg = ($mStatus === 200 && is_array($mData) && count($mData) > 0) ? $mData[0] : null;
     
     if ($lastMsg) {
@@ -129,29 +104,41 @@ foreach ($convIds as $cid) {
     }
     
     $otherUserId = $convOtherUserMap[$cid] ?? null;
-    $dmDisplayName = $otherUserId ? ($userNamesMap[$otherUserId] ?? null) : null;
-    $chat = $chats[$cid];
+    $chat = $chats[$cid] ?? null;
+    if (!$chat) continue;
     
     $tempResults[] = [
         'id' => $chat['id'],
-        'name' => ($chat['type'] === 'dm' && $dmDisplayName) ? $dmDisplayName : $chat['name'],
+        'name' => $chat['name'],
         'type' => $chat['type'],
         'last_message_raw' => $lastMsg,
         'other_user_id' => $otherUserId
     ];
 }
 
-// Step 6: Batch fetch all sender names for previews identified in step 5
-if (!empty($senderIdsToFetch)) {
-    $senderIdsToFetch = array_unique($senderIdsToFetch);
-    $sIdList = implode(',', $senderIdsToFetch);
-    [$sStatus, $sData] = supabase_request('GET', "rest/v1/accounts?log_id=in.({$sIdList})&select=log_id,username,is_online");
-    if ($sStatus === 200 && is_array($sData)) {
-        foreach ($sData as $s) {
-            $userNamesMap[(string)$s['log_id']] = $s['username'];
-            if (!isset($userOnlineMap[(string)$s['log_id']])) {
-                $userOnlineMap[(string)$s['log_id']] = (bool)($s['is_online'] ?? false);
-            }
+// Step 4 & 6: Fetch ALL needed user info (DMs and Senders) in a single batch
+$userNamesMap = [];
+$userOnlineMap = [];
+$allUserIdsToFetch = array_unique(array_merge($dmOtherUserIds, $senderIdsToFetch));
+
+if (!empty($allUserIdsToFetch)) {
+    $uIdList = implode(',', $allUserIdsToFetch);
+    
+    // Fetch names from employees table
+    [$eStatus, $eData] = supabase_request('GET', "rest/v1/employees?log_id=in.({$uIdList})&select=log_id,name");
+    
+    // Fetch online status from accounts table
+    [$uStatus, $uData] = supabase_request('GET', "rest/v1/accounts?log_id=in.({$uIdList})&select=log_id,is_online");
+    
+    if ($eStatus === 200 && is_array($eData)) {
+        foreach ($eData as $e) {
+            $userNamesMap[(string)$e['log_id']] = (string)$e['name'];
+        }
+    }
+    
+    if ($uStatus === 200 && is_array($uData)) {
+        foreach ($uData as $u) {
+            $userOnlineMap[(string)$u['log_id']] = (bool)($u['is_online'] ?? false);
         }
     }
 }
@@ -181,9 +168,14 @@ foreach ($tempResults as $res) {
         }
     }
     
+    $displayName = $res['name'];
+    if ($res['type'] === 'dm' && $res['other_user_id']) {
+        $displayName = $userNamesMap[$res['other_user_id']] ?? $res['name'];
+    }
+
     $payload = [
         'id' => $res['id'],
-        'name' => $res['name'],
+        'name' => $displayName,
         'type' => $res['type'],
         'last_message' => $lastMessageString,
         'last_message_time' => $lastMessageTime,

@@ -41,6 +41,8 @@ export default function UserAvatar({
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
+    setAvatarUri(null);
+    setLoaded(false);
     if (!userId) {
       setLoaded(true);
       return;
@@ -75,7 +77,7 @@ export default function UserAvatar({
   }, [userId]);
 
   const radius = size / 2;
-  const initial = displayName.trim().charAt(0).toUpperCase() || '?';
+  const initial = (displayName || '').trim().charAt(0).toUpperCase() || '?';
 
   return (
     <View style={[styles.container, { width: size, height: size }]}>

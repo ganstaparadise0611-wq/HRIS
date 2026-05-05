@@ -27,7 +27,6 @@ if (Platform.OS !== 'web') {
       // Configure foreground notification presentation (native only)
       Notifications.setNotificationHandler({
         handleNotification: async () => ({
-          shouldShowAlert: true,
           shouldPlaySound: true,
           shouldSetBadge: true,
           shouldShowBanner: true,

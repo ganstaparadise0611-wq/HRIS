@@ -34,11 +34,20 @@ if (empty($conversationId)) {
     exit;
 }
 
-// Fetch messages from Supabase (exclude soft-deleted)
-[$status, $data, $err] = supabase_request(
-    'GET',
-    "rest/v1/messages?conversation_id=eq.{$conversationId}&is_deleted=eq.false&order=created_at.asc&limit={$limit}&offset={$offset}&select=*"
-);
+$parentId = $_GET['parent_id'] ?? '';
+
+// Build query
+$query = "rest/v1/messages?conversation_id=eq.{$conversationId}&is_deleted=eq.false";
+if (!empty($parentId)) {
+    $query .= "&reply_to_id=eq.{$parentId}";
+} else {
+    // Only fetch top-level messages for the main conversation feed
+    $query .= "&reply_to_id=is.null";
+}
+$query .= "&order=created_at.asc&limit={$limit}&offset={$offset}&select=*";
+
+// Fetch messages from Supabase
+[$status, $data, $err] = supabase_request('GET', $query);
 
 if ($err) {
     error_log("Error fetching messages: " . $err);
@@ -69,30 +78,65 @@ if (is_array($data) && count($data) > 0) {
     $senderMap = [];
     
     if (!empty($senderIds)) {
-        // Fetch all senders in ONE request
+        // Fetch all senders from employees table in ONE request
         $idList = implode(',', $senderIds);
         [$senderStatus, $senderData] = supabase_request(
             'GET', 
-            "rest/v1/accounts?log_id=in.({$idList})&select=log_id,username"
+            "rest/v1/employees?log_id=in.({$idList})&select=log_id,name"
         );
         
         if ($senderStatus === 200 && is_array($senderData)) {
             foreach ($senderData as $s) {
                 $senderMap[(string)$s['log_id']] = [
                     'log_id' => (string)$s['log_id'],
-                    'username' => (string)$s['username']
+                    'username' => (string)$s['name'] // Mapping 'name' to 'username' for frontend compatibility
                 ];
             }
         }
     }
 
-    // Map messages back with sender info
+    // Step 3: Fetch comment counts for these messages in batch
+    $commentCounts = [];
+    [$countStatus, $countData] = supabase_request(
+        'GET',
+        "rest/v1/messages?conversation_id=eq.{$conversationId}&reply_to_id=not.is.null&is_deleted=eq.false&select=reply_to_id"
+    );
+    
+    if ($countStatus === 200 && is_array($countData)) {
+        foreach ($countData as $c) {
+            $rid = (string)$c['reply_to_id'];
+            $commentCounts[$rid] = ($commentCounts[$rid] ?? 0) + 1;
+        }
+    }
+
+    // Step 4: Fetch reactions for these messages
+    $reactionsMap = [];
+    $msgIds = array_column($data, 'id');
+    if (!empty($msgIds)) {
+        [$reactStatus, $reactData] = supabase_request(
+            'GET',
+            "rest/v1/reactions?message_id=in.(" . implode(',', $msgIds) . ")&select=message_id,emoji,user_id"
+        );
+        
+        if ($reactStatus === 200 && is_array($reactData)) {
+            foreach ($reactData as $r) {
+                $mid = (string)$r['message_id'];
+                $emoji = $r['emoji'];
+                if (!isset($reactionsMap[$mid])) $reactionsMap[$mid] = [];
+                if (!isset($reactionsMap[$mid][$emoji])) $reactionsMap[$mid][$emoji] = [];
+                $reactionsMap[$mid][$emoji][] = (string)$r['user_id'];
+            }
+        }
+    }
+
+    // Map messages back with sender info, comment count, and reactions
     foreach ($data as $msg) {
         $sid = (string)$msg['sender_id'];
         $sender = $senderMap[$sid] ?? null;
+        $mid = (string)$msg['id'];
         
         $messages[] = [
-            'id' => (string)$msg['id'],
+            'id' => $mid,
             'conversation_id' => (string)$msg['conversation_id'],
             'sender_id' => $sid,
             'content' => $msg['content'],
@@ -101,7 +145,9 @@ if (is_array($data) && count($data) > 0) {
             'created_at' => $msg['created_at'],
             'edited_at' => $msg['edited_at'] ?? null,
             'is_deleted' => $msg['is_deleted'] ?? false,
-            'sender' => $sender
+            'sender' => $sender,
+            'comment_count' => $commentCounts[$mid] ?? 0,
+            'reactions' => $reactionsMap[$mid] ?? null
         ];
     }
 }

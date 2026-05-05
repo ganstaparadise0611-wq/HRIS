@@ -43,6 +43,25 @@ export default function OfflineMode() {
   const [checking, setChecking] = useState(false);
   const [unsyncedCount, setUnsyncedCount] = useState(0);
   const [showBottomSheet, setShowBottomSheet] = useState(false);
+  const [activeStep, setActiveStep] = useState(0);
+
+  const steps = [
+    {
+      title: "Oh Dear...",
+      subtitle: "Connection can get bad sometimes, but we've got you covered. Swipe to see how to work offline.",
+      icon: "wifi-off"
+    },
+    {
+      title: "Step 1: Stay Active",
+      subtitle: "You can still record your attendance and daily activities even without an internet connection.",
+      icon: "clock-check-outline"
+    },
+    {
+      title: "Step 2: Sync Later",
+      subtitle: "Once you're back in a stable network, just tap 'Online Mode' to sync all your data automatically.",
+      icon: "cloud-sync-outline"
+    }
+  ];
 
   // Load unsynced record count
   useEffect(() => {
@@ -129,25 +148,40 @@ export default function OfflineMode() {
         showsVerticalScrollIndicator={false}
       >
         <Reanimated.View style={animatedStyle}>
-          {/* Hero Illustration Area */}
+          {/* Swipeable Hero Section */}
           <View style={styles.heroSection}>
-            {/* Animated WiFi-off icon */}
-            <Reanimated.View style={[styles.heroIconWrapper, wifiAnimStyle]}>
-              <View style={[styles.heroIconCircle, { backgroundColor: isDark ? 'rgba(242,113,33,0.15)' : 'rgba(242,113,33,0.10)' }]}>
-                <MaterialCommunityIcons name="wifi-off" size={64} color="#F27121" />
-              </View>
-            </Reanimated.View>
-
-            <Text style={[styles.heroTitle, dyn.text]}>Oh Dear...</Text>
-            <Text style={[styles.heroSubtitle, dyn.sub]}>
-              Connection can get bad sometimes, but we{'\n'}know the solution for this. Here's how...
-            </Text>
+            <ScrollView
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              style={{ width: width - 48 }}
+              onMomentumScrollEnd={(e) => {
+                const index = Math.round(e.nativeEvent.contentOffset.x / (width - 48));
+                setActiveStep(index);
+              }}
+            >
+              {steps.map((item, i) => (
+                <Reanimated.View key={i} style={[{ width: width - 48, alignItems: 'center' }, i === 0 && wifiAnimStyle]}>
+                  <View style={[styles.heroIconCircle, { backgroundColor: isDark ? 'rgba(242,113,33,0.15)' : 'rgba(242,113,33,0.10)', marginBottom: 24 }]}>
+                    <MaterialCommunityIcons name={item.icon as any} size={64} color="#F27121" />
+                  </View>
+                  <Text style={[styles.heroTitle, dyn.text]}>{item.title}</Text>
+                  <Text style={[styles.heroSubtitle, dyn.sub]}>{item.subtitle}</Text>
+                </Reanimated.View>
+              ))}
+            </ScrollView>
 
             {/* Step indicators */}
             <View style={styles.dotIndicator}>
-              <View style={[styles.dot, styles.dotActive]} />
-              <View style={[styles.dot, { backgroundColor: colors.border }]} />
-              <View style={[styles.dot, { backgroundColor: colors.border }]} />
+              {steps.map((_, i) => (
+                <View
+                  key={i}
+                  style={[
+                    styles.dot,
+                    activeStep === i ? styles.dotActive : { backgroundColor: colors.border }
+                  ]}
+                />
+              ))}
             </View>
           </View>
 

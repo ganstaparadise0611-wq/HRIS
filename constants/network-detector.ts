@@ -35,16 +35,29 @@ async function testConnectivity(url: string, timeout: number = 3000): Promise<bo
   }
 }
 
+let checkPromise: Promise<string> | null = null;
+
 /**
  * Detect best available network and return the URL
  */
 export async function detectBestNetwork(): Promise<string> {
-  if (isChecking) {
-    return currentBackendUrl;
+  if (checkPromise) {
+    return checkPromise;
   }
   
-  isChecking = true;
+  checkPromise = (async () => {
+    try {
+      // ... actual detection logic moved below ...
+      return await performDetection();
+    } finally {
+      checkPromise = null;
+    }
+  })();
   
+  return checkPromise;
+}
+
+async function performDetection(): Promise<string> {
   try {
     const { preferred, local, ngrok, custom } = NETWORK_CONFIG;
     
@@ -174,8 +187,6 @@ export async function detectBestNetwork(): Promise<string> {
   } catch (error) {
     console.error('[Network] Detection error:', error);
     return lastSuccessfulUrl;
-  } finally {
-    isChecking = false;
   }
 }
 

@@ -558,54 +558,41 @@ export default function FeedsScreen() {
           </View>
         )}
         <View style={styles.composeFooter}>
-          <TouchableOpacity
-            style={styles.imageButton}
-            onPress={handlePickImage}
-            disabled={pickingImage}
-          >
-            <Ionicons
-              name="image-outline"
-              size={16}
-              color={pickingImage ? '#999' : colors.subText}
-            />
-            <Text style={[styles.imageButtonText, dyn.sub]}>
-              {imagePreviewUri ? 'Change photo' : 'Add photo'}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.imageButton, { marginLeft: 4 }]}
-            onPress={handlePickVideo}
-            disabled={pickingVideo}
-          >
-            <Ionicons
-              name="videocam-outline"
-              size={16}
-              color={pickingVideo ? '#999' : colors.subText}
-            />
-            <Text style={[styles.imageButtonText, dyn.sub]}>
-              {videoUri
-                ? `Change video${videoDurationSeconds ? ` (${Math.round(videoDurationSeconds)}s)` : ''}`
-                : 'Add video'}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.achievementToggle}
-            onPress={() => setNewIsAchievement((v) => !v)}
-          >
-            <MaterialCommunityIcons
-              name={newIsAchievement ? 'star-circle' : 'star-circle-outline'}
-              size={18}
-              color={newIsAchievement ? '#F27121' : colors.subText}
-            />
-            <Text
-              style={[
-                styles.achievementText,
-                { color: newIsAchievement ? '#F27121' : colors.subText },
-              ]}
+          <View style={styles.leftActions}>
+            <TouchableOpacity
+              style={styles.imageButton}
+              onPress={handlePickImage}
+              disabled={pickingImage}
             >
-              Mark as achievement
-            </Text>
-          </TouchableOpacity>
+              <Ionicons
+                name="image-outline"
+                size={20}
+                color={pickingImage ? '#999' : colors.subText}
+              />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.imageButton, { marginLeft: 12 }]}
+              onPress={handlePickVideo}
+              disabled={pickingVideo}
+            >
+              <Ionicons
+                name="videocam-outline"
+                size={20}
+                color={pickingVideo ? '#999' : colors.subText}
+              />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.achievementToggle, { marginLeft: 16 }]}
+              onPress={() => setNewIsAchievement((v) => !v)}
+            >
+              <MaterialCommunityIcons
+                name={newIsAchievement ? 'star-circle' : 'star-circle-outline'}
+                size={22}
+                color={newIsAchievement ? '#F27121' : colors.subText}
+              />
+            </TouchableOpacity>
+          </View>
+          
           <TouchableOpacity
             style={[
               styles.composePostButton,
@@ -804,6 +791,10 @@ const styles = StyleSheet.create({
   achievementText: {
     fontSize: 12,
     marginLeft: 4,
+  },
+  leftActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   composePostButton: {
     borderRadius: 999,
